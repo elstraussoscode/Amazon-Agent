@@ -1,0 +1,26 @@
+# Environment variables
+.env
+
+# Python virtual environment
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Streamlit specific
+.streamlit/
+
+# Temporary files
+temp_upload.xlsx
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+
+# OS specific
+.DS_Store
+Thumbs.db 
