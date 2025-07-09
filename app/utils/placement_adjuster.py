@@ -1,5 +1,7 @@
 from typing import List, Dict
 import pandas as pd
+import numpy as np
+import warnings
 
 
 def compute_placement_adjustments(df_campaign: pd.DataFrame, target_acos: float = 0.20) -> List[Dict]:
@@ -63,11 +65,14 @@ def compute_placement_adjustments(df_campaign: pd.DataFrame, target_acos: float 
             placement_label = row['platzierung']
             current_pct = row['prozentsatz']
             rpc = row['rpc']
-            if pd.isna(rpc) or rpc == float('inf'):
-                # Cannot compute adjustment when sales is zero
+            if pd.isna(rpc) or rpc == float('inf') or min_rpc == 0 or pd.isna(min_rpc):
+                # Cannot compute adjustment when sales is zero or min_rpc is invalid
                 recommended_pct = current_pct  # keep unchanged
             else:
-                ratio = rpc / min_rpc  # ≥ 1
+                # Suppress numpy runtime warnings for this division
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    ratio = rpc / min_rpc  # ≥ 1
                 # Amazon interprets 0 % as keine Änderung, 100 % als Verdopplung.
                 # Daher: (ratio − 1) * 100 liefert 0 % bei minimalem RPC und 100 % bei Verdopplung.
                 recommended_pct = round(max(ratio - 1, 0) * 100, 1)

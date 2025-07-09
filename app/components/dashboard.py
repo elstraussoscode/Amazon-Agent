@@ -268,9 +268,9 @@ def render_keyword_changes_tab(keyword_perf):
                 df_good = df_good.rename(columns=rename_dict)
                 # Format ACOS and CR as Prozentwert (convert from decimal)
                 if 'ACOS %' in df_good.columns:
-                    df_good['ACOS %'] = df_good['ACOS %'].apply(lambda x: f"{round(x*100,2)}%" if not pd.isna(x) else 'N/A')
+                    df_good['ACOS %'] = df_good['ACOS %'].apply(lambda x: round(x*100,2) if not pd.isna(x) else pd.NA)
                 if 'CR %' in df_good.columns:
-                    df_good['CR %'] = df_good['CR %'].apply(lambda x: f"{round(x*100,2)}%" if not pd.isna(x) else 'N/A')
+                    df_good['CR %'] = df_good['CR %'].apply(lambda x: round(x*100,2) if not pd.isna(x) else pd.NA)
                 st.dataframe(df_good, use_container_width=True)
         
         with col2:
@@ -303,9 +303,9 @@ def render_keyword_changes_tab(keyword_perf):
                 df_bad = df_bad.rename(columns=rename_dict)
                 # Format ACOS and CR as Prozentwert (convert from decimal)
                 if 'ACOS %' in df_bad.columns:
-                    df_bad['ACOS %'] = df_bad['ACOS %'].apply(lambda x: f"{round(x*100,2)}%" if not pd.isna(x) else 'N/A')
+                    df_bad['ACOS %'] = df_bad['ACOS %'].apply(lambda x: round(x*100,2) if not pd.isna(x) else pd.NA)
                 if 'CR %' in df_bad.columns:
-                    df_bad['CR %'] = df_bad['CR %'].apply(lambda x: f"{round(x*100,2)}%" if not pd.isna(x) else 'N/A')
+                    df_bad['CR %'] = df_bad['CR %'].apply(lambda x: round(x*100,2) if not pd.isna(x) else pd.NA)
                 st.dataframe(df_bad, use_container_width=True)
 
 
@@ -378,7 +378,7 @@ def render_bid_changes_tab(bid_changes):
                             'acos_pct':'ACOS %'
                         })
                         if 'CR %' in df_best_disp.columns:
-                            df_best_disp['CR %'] = df_best_disp['CR %'].apply(lambda x: f"{round(x*100,2)}%" if not pd.isna(x) else 'N/A')
+                            df_best_disp['CR %'] = df_best_disp['CR %'].apply(lambda x: round(x*100,2) if not pd.isna(x) else pd.NA)
                         st.dataframe(df_best_disp, use_container_width=True)
 
                     with col_worst:
@@ -401,7 +401,7 @@ def render_bid_changes_tab(bid_changes):
                             'acos_pct':'ACOS %'
                         })
                         if 'CR %' in df_worst_disp.columns:
-                            df_worst_disp['CR %'] = df_worst_disp['CR %'].apply(lambda x: round(x,2) if not pd.isna(x) else 'N/A')
+                            df_worst_disp['CR %'] = df_worst_disp['CR %'].apply(lambda x: round(x*100,2) if not pd.isna(x) else pd.NA)
                         st.dataframe(df_worst_disp, use_container_width=True)
 
                     with st.expander("Alle Suchbegriffe"):
@@ -428,7 +428,7 @@ def render_bid_changes_tab(bid_changes):
                             'acos_pct':'ACOS %'
                         })
                         if 'CR %' in full_disp.columns:
-                            full_disp['CR %'] = full_disp['CR %'].apply(lambda x: round(x,2) if not pd.isna(x) else 'N/A')
+                            full_disp['CR %'] = full_disp['CR %'].apply(lambda x: round(x*100,2) if not pd.isna(x) else pd.NA)
                         st.dataframe(full_disp, use_container_width=True)
 
 

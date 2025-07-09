@@ -11,20 +11,23 @@ def generate_export_excel(original_excel_path: str,
                           all_original_sheet_names: list = None,
                           placement_changes: list = None):
     """
-    Generates an Excel file in memory with updated bids in the campaign sheet.
+    Generates an Excel file in memory with placement adjustments only.
+    
+    NOTE: Keyword bid updates have been disabled per user request.
+    Only placement (Platzierung) adjustments will be applied to the exported file.
 
     Args:
         original_excel_path (str): Path to the originally uploaded Excel file.
-        bid_changes (list): List of dictionaries with bid change information 
-                              (must contain 'keyword' and 'new_bid').
+        bid_changes (list): List of dictionaries with bid change information (IGNORED - keyword updates disabled).
         search_terms_sheet_name (str): The original name of the search terms sheet (for analysis reference).
-        keyword_match_col_original_name (str): Original name of the column to match keywords on in campaign sheet.
-        bid_update_col_original_name (str): Original name of the column where bids should be updated in campaign sheet.
+        keyword_match_col_original_name (str): Original name of the column to match keywords on in campaign sheet (IGNORED).
+        bid_update_col_original_name (str): Original name of the column where bids should be updated (IGNORED).
         campaign_sheet_name (str, required): Original name of the campaign sheet where changes are made.
         all_original_sheet_names (list, optional): List of all original sheet names to preserve order and other sheets.
+        placement_changes (list, optional): List of placement adjustment changes to apply.
 
     Returns:
-        BytesIO: Buffer containing the new Excel file, or None on failure.
+        BytesIO: Buffer containing the new Excel file with placement adjustments only, or None on failure.
     """
     if not original_excel_path:
         st.error("Export Error: Original Excel file path is missing.")
@@ -88,48 +91,11 @@ def generate_export_excel(original_excel_path: str,
 
         updated_keywords_count = 0
         updated_placements_count = 0
-        for change in bid_changes:
-            keyword_to_match = str(change.get('keyword', '')) # Ensure string for matching
-            new_bid = change.get('new_bid')
-
-            if new_bid is None: # Skip if no new_bid provided
-                continue
-            
-            try:
-                new_bid_float = float(new_bid)
-            except (ValueError, TypeError):
-                st.warning(f"Export Warning: Invalid new bid value '{new_bid}' for keyword '{keyword_to_match}'. Skipping this bid update.")
-                continue
-
-            # --- Locate rows to update ----------------------------------------------------
-            # We only want to touch rows where the entity type is "Keyword" (German bulk-sheet column is
-            # usually called "Entität", English sheets use "Entity"). Detect that column once.
-            if 'Entität' in df_to_update.columns:
-                entity_col = 'Entität'
-            elif 'Entity' in df_to_update.columns:
-                entity_col = 'Entity'
-            else:
-                entity_col = None
-
-            if entity_col:
-                match_mask = (
-                    (df_to_update[keyword_match_col_original_name] == keyword_to_match) &
-                    (df_to_update[entity_col].astype(str).str.lower() == 'keyword')
-                )
-            else:
-                # Fallback: no entity column → behave as before
-                match_mask = df_to_update[keyword_match_col_original_name] == keyword_to_match
-
-            match_indices = df_to_update[match_mask].index
-            
-            if not match_indices.empty:
-                df_to_update.loc[match_indices, bid_update_col_original_name] = new_bid_float
-                # Mark these rows for update in the Operation column
-                df_to_update.loc[match_indices, 'Operation'] = 'Update'
-                updated_keywords_count += len(match_indices)
-            # else:
-                # Optional: Log keywords from bid_changes not found in the sheet
-                # st.info(f"Export Info: Keyword '{keyword_to_match}' from bid changes not found in sheet '{campaign_sheet_name}'.")
+        
+        # --- KEYWORD BID UPDATES DISABLED ---
+        # Keyword bid updates have been disabled per user request.
+        # Only placement adjustments will be included in the export.
+        st.info("ℹ️ Keyword bid updates are disabled. Only placement adjustments will be exported.")
         
         # ------------------- Apply placement changes ----------------------------
         if placement_changes:
@@ -157,6 +123,12 @@ def generate_export_excel(original_excel_path: str,
             # else: silently ignore if columns missing
 
         sheets_data[campaign_sheet_name] = df_to_update
+
+        # Show export summary
+        if updated_placements_count > 0:
+            st.success(f"✅ Export erfolgreich: {updated_placements_count} Platzierungs-Anpassungen wurden aktualisiert.")
+        else:
+            st.warning("⚠️ Keine Platzierungs-Anpassungen gefunden oder angewendet.")
 
         output_buffer = BytesIO()
         with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
