@@ -68,6 +68,8 @@ def process_amazon_report(file_path):
         # Define mappings for campaign sheet (where changes will be made)
         column_mappings_campaign = {
             'kampagne': 'campaign_name', 'kampagnenname': 'campaign_name', 'campaign': 'campaign_name',
+            'kampagnen-id': 'kampagnen-id', 'campaign_id': 'kampagnen-id', 'kampagnenid': 'kampagnen-id',
+            'targeting-typ': 'targeting-typ', 'targeting_typ': 'targeting-typ', 'targeting_type': 'targeting-typ',
             'tagesbudget': 'daily_budget', 'status': 'status', 'gebotstyp': 'bidding_strategy', 
             'anzeigengruppe': 'ad_group_name', 'anzeigengruppenname': 'ad_group_name', 'ad_group': 'ad_group_name',
             'max._gebot': 'max_bid', 'maximales_gebot': 'max_bid', 'max_bid': 'max_bid',
@@ -107,6 +109,7 @@ def process_amazon_report(file_path):
             # Define mappings for search terms (analysis only)
             column_mappings_search_terms = {
                 'suchbegriff': 'customer_search_term', 'suchbegriff_eines_kunden': 'customer_search_term', 'customer_search_term': 'customer_search_term',
+                'kampagnen-id': 'kampagnen-id', 'campaign_id': 'kampagnen-id', 'kampagnenid': 'kampagnen-id',
                 'keyword-text': 'keyword', 'keyword_text': 'keyword', 'keyword': 'keyword',
                 'übereinstimmungstyp': 'match_type', 'match_type': 'match_type', 'übereinstimmung': 'match_type',
                 'klicks': 'clicks', 'impressionen': 'impressions', 'ausgaben': 'spend', 'verkäufe': 'sales',

@@ -307,7 +307,26 @@ def render_bid_changes_tab(bid_changes):
 
             for camp_id, grp in df_st.groupby('kampagnen-id'):
                 with st.container():
+                    # Get campaign info from campaign data if available
+                    campaign_name = "N/A"
+                    targeting_type = "N/A"
+                    
+                    if 'df_campaign' in st.session_state and st.session_state.df_campaign is not None:
+                        df_campaign = st.session_state.df_campaign
+                        # Find campaign info for this campaign ID
+                        campaign_rows = df_campaign[df_campaign['kampagnen-id'] == camp_id]
+                        if not campaign_rows.empty:
+                            first_row = campaign_rows.iloc[0]
+                                                         # Get campaign name
+                            if 'campaign_name' in first_row:
+                                campaign_name = first_row['campaign_name']
+                            
+                            # Get targeting type
+                            if 'targeting-typ' in first_row:
+                                targeting_type = first_row['targeting-typ']
+                    
                     st.markdown(f"#### Kampagne **{camp_id}**")
+                    st.markdown(f"**Name:** {campaign_name} | **Targeting:** {targeting_type}")
 
                     # ACOS als Prozent Format
                     grp['acos_pct'] = grp['acos'].apply(lambda x: round(x*100,2) if x <= 1 else round(x,2))
