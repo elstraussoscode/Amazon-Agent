@@ -212,7 +212,26 @@ def render_keyword_changes_tab(keyword_perf):
     df_kw = pd.DataFrame(keyword_perf)
 
     for campaign_id, grp in df_kw.groupby('campaign_id'):
+        # Get campaign info from campaign data if available
+        campaign_name = "N/A"
+        targeting_type = "N/A"
+        
+        if 'df_campaign' in st.session_state and st.session_state.df_campaign is not None:
+            df_campaign = st.session_state.df_campaign
+            # Find campaign info for this campaign ID
+            campaign_rows = df_campaign[df_campaign['kampagnen-id'] == campaign_id]
+            if not campaign_rows.empty:
+                first_row = campaign_rows.iloc[0]
+                # Get campaign name
+                if 'campaign_name' in first_row:
+                    campaign_name = first_row['campaign_name']
+                
+                # Get targeting type
+                if 'targeting-typ' in first_row:
+                    targeting_type = first_row['targeting-typ']
+        
         st.markdown(f"### Kampagne **{campaign_id}**")
+        st.markdown(f"**Name:** {campaign_name} | **Targeting:** {targeting_type}")
 
         good = grp[grp['status'] == 'gut']
         bad = grp[grp['status'] == 'schlecht']

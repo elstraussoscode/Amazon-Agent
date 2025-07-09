@@ -25,3 +25,6 @@ build/
 .DS_Store
 Thumbs.db 
 .venv/ 
+
+*.xlsx
+/temp_uploads
