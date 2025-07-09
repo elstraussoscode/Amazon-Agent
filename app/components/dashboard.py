@@ -18,8 +18,8 @@ def render_dashboard(optimization_results: Dict[str, Any]):
     bid_changes = optimization_results.get("bid_changes", [])
     summary = optimization_results.get("summary", {})
     
-    # Create metrics row - Updated for Bids Increased/Decreased
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # Create metrics row - Updated to show Bids Increased/Decreased
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric(
@@ -31,29 +31,24 @@ def render_dashboard(optimization_results: Dict[str, Any]):
         st.metric(
             "Keywords to Pause",
             f"{summary.get('keywords_to_pause', 0)}",
-            # delta=-summary.get('keywords_to_pause', 0), # Delta might be confusing here
-            # delta_color="inverse"
+            delta=f"{summary.get('keywords_to_pause', 0)} to pause", # More descriptive delta
+            delta_color="inverse"
         )
     
     with col3:
         st.metric(
             "Bids Increased",
-            f"{summary.get('bids_to_increase', 0)}"
+            f"{summary.get('bids_to_increase', 0)}",
+             delta=f"{summary.get('avg_bid_increase', 0):.1f}% avg inc.",
+             delta_color="normal" # Green for increase generally positive in this context
         )
     
     with col4:
         st.metric(
             "Bids Decreased",
-            f"{summary.get('bids_to_decrease', 0)}"
-        )
-    
-    estimated_acos_reduction = summary.get('estimated_impact', {}).get('projected_acos_reduction', 0)
-    with col5:
-        st.metric(
-            "Est. ACOS Reduction",
-            f"{estimated_acos_reduction:.2f}%",
-            delta=f"{-estimated_acos_reduction:.2f}%" if estimated_acos_reduction != 0 else None, # Show negative delta for reduction
-            delta_color="inverse" # Red for negative delta means good (reduction)
+            f"{summary.get('bids_to_decrease', 0)}",
+            delta=f"{summary.get('avg_bid_decrease', 0):.1f}% avg dec.",
+            delta_color="inverse" # Red for decrease often implies cost saving/ACOS control
         )
     
     # Create tabs for different views
@@ -80,9 +75,32 @@ def render_dashboard(optimization_results: Dict[str, Any]):
 def render_overview_tab(optimization_results: Dict[str, Any]):
     """Render the overview tab with summary charts"""
     summary = optimization_results.get("summary", {})
+    estimated_impact = summary.get('estimated_impact', {})
     
-    st.subheader("Performance Impact")
+    st.subheader("Performance Impact Overview")
     
+    # Display Est. ACOS Reduction and Cost Savings more prominently here
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        st.metric(
+            "Est. ACOS Reduction",
+            f"{estimated_impact.get('projected_acos_reduction', 0):.2f}%",
+            delta_color="off" # No delta needed as value is the change
+        )
+    with col_b:
+        st.metric(
+            "Est. Cost Savings",
+            f"${estimated_impact.get('cost_saving', 0):.2f}",
+            delta_color="off"
+        )
+    with col_c:
+        st.metric(
+            "Efficiency Improvement",
+            f"{estimated_impact.get('efficiency_improvement', 0):.2f}%",
+            delta_color="off"
+        )
+    st.markdown("---")
+
     # Create columns for charts
     col1, col2 = st.columns(2)
     
@@ -98,86 +116,71 @@ def render_overview_tab(optimization_results: Dict[str, Any]):
         df_keyword_pie = pd.DataFrame(keyword_data)
         
         if df_keyword_pie['Count'].sum() > 0:
-            fig = px.pie(
+            fig_keyword_pie = px.pie(
                 df_keyword_pie, 
                 values='Count', 
                 names='Action',
-                title='Keyword Actions',
+                title='Keyword Actions Breakdown',
                 color='Action',
                 color_discrete_map={'Pause': '#FF4B4B', 'Keep': '#36A2EB'}
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig_keyword_pie, use_container_width=True)
         else:
-            st.info("No keyword data available")
+            st.info("No keyword action data available for chart.")
     
     # Bid adjustments pie chart
     with col2:
         bid_data = {
-            'Action': ['Increase', 'Decrease'],
+            'Action': ['Increase', 'Decrease', 'No Change'], # Added No Change
             'Count': [
                 summary.get('bids_to_increase', 0),
-                summary.get('bids_to_decrease', 0)
+                summary.get('bids_to_decrease', 0),
+                summary.get('total_keywords_analyzed', 0) - 
+                (summary.get('bids_to_increase', 0) + summary.get('bids_to_decrease', 0)) # Calculate no change
             ]
         }
         df_bid_pie = pd.DataFrame(bid_data)
+        df_bid_pie = df_bid_pie[df_bid_pie['Count'] >= 0] # Ensure no negative counts
         
         if df_bid_pie['Count'].sum() > 0:
-            fig = px.pie(
+            fig_bid_pie = px.pie(
                 df_bid_pie, 
                 values='Count', 
                 names='Action',
-                title='Bid Adjustments',
+                title='Bid Adjustments Breakdown',
                 color='Action',
-                color_discrete_map={'Increase': '#4BC0C0', 'Decrease': '#FFCD56'}
+                color_discrete_map={'Increase': '#4BC0C0', 'Decrease': '#FFCD56', 'No Change': '#D3D3D3'}
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig_bid_pie, use_container_width=True)
         else:
-            st.info("No bid adjustment data available")
+            st.info("No bid adjustment data available for chart.")
     
-    # Cost savings
-    st.subheader("Estimated Cost Savings")
-    
-    cost_saving = summary.get('estimated_impact', {}).get('cost_saving', 0)
-    efficiency_improvement = summary.get('estimated_impact', {}).get('efficiency_improvement', 0)
-    
-    if cost_saving > 0 or efficiency_improvement > 0:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric(
-                "Estimated Cost Savings",
-                f"${cost_saving:.2f}",
-                delta=f"${cost_saving:.2f}",
-                delta_color="inverse"
-            )
-        
-        with col2:
-            st.metric(
-                "Efficiency Improvement",
-                f"{efficiency_improvement:.2f}%",
-                delta=f"{efficiency_improvement:.2f}%"
-            )
-            
-        # Add a gauge chart for ACOS reduction
-        fig = go.Figure(go.Indicator(
-            mode = "gauge+number+delta",
-            value = summary.get('estimated_impact', {}).get('projected_acos_reduction', 0),
+    st.markdown("---")
+    # Gauge chart for ACOS reduction can remain if desired, or be removed if redundant with metric above
+    projected_acos_reduction = estimated_impact.get('projected_acos_reduction', 0)
+    if projected_acos_reduction is not None:
+        fig_gauge = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = projected_acos_reduction,
             title = {'text': "Projected ACOS Reduction (%)"},
-            delta = {'reference': 0},
             gauge = {
-                'axis': {'range': [None, 20]},
-                'bar': {'color': "#36A2EB"},
+                'axis': {'range': [None, max(20, projected_acos_reduction + 5)]}, # Dynamic range
+                'bar': {'color': "#1f77b4"},
                 'steps': [
-                    {'range': [0, 5], 'color': "#FFCD56"},
-                    {'range': [5, 10], 'color': "#4BC0C0"},
-                    {'range': [10, 20], 'color': "#FF4B4B"}
-                ]
+                    {'range': [0, 5], 'color': "lightgreen"},
+                    {'range': [5, 10], 'color': "lightyellow"},
+                    # {'range': [10, 20], 'color': "lightcoral"} # Removed fixed upper step
+                ],
+                'threshold': {
+                    'line': {'color': "red", 'width': 4},
+                    'thickness': 0.75,
+                    'value': summary.get('target_acos', 20) # Show target ACOS if available
+                }
             }
         ))
-        
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig_gauge, use_container_width=True)
     else:
-        st.info("No cost savings data available")
+        st.info("Projected ACOS reduction data not available for gauge chart.")
 
 
 def render_keyword_changes_tab(keyword_changes):

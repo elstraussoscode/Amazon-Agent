@@ -4,6 +4,8 @@ import os
 from typing import Dict, List, Any, TypedDict, Annotated
 from typing_extensions import TypedDict
 from dotenv import load_dotenv
+import streamlit as st
+import traceback
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -155,24 +157,9 @@ def adjust_bids(state: PPCState) -> PPCState:
     """
     # Get dataframes from state
     df_search_terms = state['df_search_terms'].copy()
-    # df_campaign = state['df_campaign'].copy() # df_campaign is not used in this function, can be removed if not needed later
+    df_campaign = state['df_campaign'].copy()
     client_config = state['client_config']
     
-    # Ensure critical columns are numeric before processing in this function
-    # This is a safeguard in case they weren't fully converted upstream or due to state passing nuances.
-    cols_to_ensure_numeric = ['acos', 'cpc', 'clicks', 'orders', 'spend', 'sales', 'conversion_rate']
-    for col in cols_to_ensure_numeric:
-        if col in df_search_terms.columns:
-            df_search_terms[col] = pd.to_numeric(df_search_terms[col], errors='coerce')
-        else:
-            # If a critical metric column is missing, initialize it as NaN or 0 to prevent errors
-            # This depends on how missing columns should be treated for bid adjustments.
-            # For now, let's ensure they exist as numeric (NaN if truly missing data, 0 if appropriate default).
-            if col in ['clicks', 'orders', 'spend', 'sales']:
-                 df_search_terms[col] = 0
-            else: # For acos, cpc, conversion_rate, NaN is usually better if data is absent
-                 df_search_terms[col] = np.nan 
-
     # Initialize bid changes list
     bid_changes = []
     
@@ -182,65 +169,68 @@ def adjust_bids(state: PPCState) -> PPCState:
         target_acos = 8.0
     if client_config.get('has_large_inventory', False):
         target_acos = 8.0
+    # Override with explicit target if provided
     if 'target_acos' in client_config and client_config['target_acos'] is not None:
-        try:
-            target_acos = float(client_config['target_acos'])
-        except ValueError:
-            st.error(f"Invalid target_acos value in client_config: {client_config['target_acos']}. Using default 20.0.") # Should be Streamlit context or logger
-            print(f"Invalid target_acos value in client_config: {client_config['target_acos']}. Using default 20.0.")
-            target_acos = 20.0
-            
+        target_acos = float(client_config['target_acos'])
+    
     # For each keyword with enough data, calculate the optimal bid
-    # Ensure 'clicks' is numeric before this comparison
-    mask_enough_data = df_search_terms['clicks'] > 10 
+    mask_enough_data = df_search_terms['clicks'] > 10
     for _, row in df_search_terms[mask_enough_data].iterrows():
-        keyword = row['keyword'] if 'keyword' in row else row.get('search_term') # Use .get for search_term as fallback
-        search_term = row['customer_search_term'] if 'customer_search_term' in row else keyword
+        # Get the correct keyword identifier for bidding
+        keyword = row['keyword'] if 'keyword' in row else row['search_term']
+        search_term = row['customer_search_term'] if 'customer_search_term' in row else row['search_term']
         
-        if not keyword: # Skip if no valid keyword identifier
-            continue
-            
+        # Skip keywords that will be paused
         if any(change['keyword'] == keyword and change['action'] == 'pause' 
                for change in state['keyword_changes']):
             continue
         
-        current_acos = row['acos'] if pd.notna(row['acos']) else 0.0 # Ensure float, use 0.0 if NaN
-        current_cpc = row['cpc'] if pd.notna(row['cpc']) else 0.0   # Ensure float, use 0.0 if NaN
-        current_orders = row['orders'] if pd.notna(row['orders']) else 0 # Ensure numeric
+        # Current metrics
+        current_acos = row['acos'] if not pd.isna(row['acos']) else 0
+        current_cpc = row['cpc'] if not pd.isna(row['cpc']) else 0
         
-        adjustment_factor = 1.0
         # Bid adjustment based on ACOS performance
-        if current_acos == 0 and current_orders > 0:
-            adjustment_factor = 1.1  
-        elif current_acos == 0 and current_orders == 0:
+        if current_acos == 0 and row['orders'] > 0:
+            # Special case: ACOS is 0 but has orders (should be impossible)
+            adjustment_factor = 1.1  # Increase slightly
+        elif current_acos == 0 and row['orders'] == 0:
+            # No conversions, reduce bid
             adjustment_factor = 0.7
         elif current_acos > target_acos * 1.5:
+            # ACOS way too high, reduce bid significantly
             adjustment_factor = 0.6
         elif current_acos > target_acos:
-            # Ensure current_acos is not zero to prevent division by zero if target_acos is also zero (edge case)
-            adjustment_factor = target_acos / current_acos if current_acos != 0 else 0.8 # Default reduction if current_acos is 0 but target isn't
-        elif current_acos < target_acos * 0.5 and current_orders > 0:
+            # ACOS too high, reduce bid
+            adjustment_factor = target_acos / current_acos
+        elif current_acos < target_acos * 0.5 and row['orders'] > 0:
+            # ACOS much lower than target and has orders, can increase bid
             adjustment_factor = 1.3
-        elif current_acos < target_acos and current_orders > 0:
+        elif current_acos < target_acos and row['orders'] > 0:
+            # ACOS lower than target and has orders, can increase bid slightly
             adjustment_factor = 1.1
-        # else: Keep bid the same (adjustment_factor = 1.0)
+        else:
+            # Keep bid the same
+            adjustment_factor = 1.0
         
+        # Apply adjustment
         new_bid = current_cpc * adjustment_factor
         
-        if abs(adjustment_factor - 1.0) > 0.05: 
+        # Add to bid changes if there's a significant change
+        if abs(adjustment_factor - 1.0) > 0.05:  # 5% threshold for changes
             bid_changes.append({
                 'keyword': keyword,
                 'customer_search_term': search_term,
                 'current_bid': current_cpc,
                 'new_bid': new_bid,
                 'change_percentage': (adjustment_factor - 1) * 100,
-                'reason': get_bid_change_reason(current_acos, target_acos, current_orders, row['clicks']),
-                'original_data': {k: v for k, v in row.items() if k in ['clicks', 'orders', 'acos', 'conversion_rate', 'cpc', 'spend', 'sales']}
+                'reason': get_bid_change_reason(current_acos, target_acos, row['orders'], row['clicks']),
+                'original_data': {k: v for k, v in row.items() if k in ['clicks', 'orders', 'acos', 'conversion_rate']}
             })
     
+    # Update state
     state['bid_changes'] = bid_changes
     state['current_step'] = 'generate_summary'
-    state['debug_info'].append(f"Processed {len(bid_changes)} bid changes after ensuring numeric types.")
+    state['debug_info'].append(f"Processed {len(bid_changes)} bid changes")
     
     return state
 
@@ -509,7 +499,6 @@ def generate_ai_recommendations(state: PPCState) -> List[str]:
         
     except Exception as e:
         print(f"Error generating AI recommendations: {str(e)}")
-        import traceback
         st.code(traceback.format_exc()) # Show full traceback in Streamlit for easier debugging
         return [
             "An error occurred while generating AI recommendations.",

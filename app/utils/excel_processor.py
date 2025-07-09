@@ -3,8 +3,8 @@ import streamlit as st
 
 def process_amazon_report(file_path):
     """
-    Process Amazon Bulk Sheet Excel file and extract campaign and search term data.
-    Also identifies original sheet and column names for potential export.
+    Process Amazon Bulk Sheet Excel file focusing on Sponsored Products-Kampagnen sheet for changes.
+    SP Bericht Suchbegriff is used only for analysis to identify keyword outliers.
     
     Args:
         file_path (str): Path to the Excel file
@@ -15,8 +15,8 @@ def process_amazon_report(file_path):
             df_search_terms_processed, 
             original_search_terms_sheet_name, 
             original_campaign_sheet_name,
-            identified_original_keyword_column,  // e.g., "Keyword-Text"
-            identified_original_bid_target_column // e.g., "CPC" or "Kosten pro Klick"
+            identified_original_keyword_column,  // e.g., "Keyword-Text" in campaigns sheet
+            identified_original_bid_target_column // e.g., "CPC" or "Kosten pro Klick" in campaigns sheet
         )
     """
     try:
@@ -28,210 +28,161 @@ def process_amazon_report(file_path):
         original_campaign_sheet_name = None
 
         # --- Sheet Identification ---
+        # Look for SP Bericht Suchbegriff for analysis only
         if "SP Bericht Suchbegriff" in all_sheet_names:
             original_search_terms_sheet_name = "SP Bericht Suchbegriff"
-            st.success(f"Found the specified 'SP Bericht Suchbegriff' sheet!")
+            st.success(f"Found 'SP Bericht Suchbegriff' sheet for keyword analysis!")
         else:
             for sheet in all_sheet_names:
                 if "Suchbegriff" in sheet or "Search Term" in sheet or "SP Bericht" in sheet:
                     original_search_terms_sheet_name = sheet
                     break
         
-        for sheet in all_sheet_names:
-            if "Kampagne" in sheet or "Campaign" in sheet or "Sponsored Products" in sheet:
-                original_campaign_sheet_name = sheet
-                break
+        # Look for Sponsored Products-Kampagnen sheet for making changes
+        if "Sponsored Products-Kampagnen" in all_sheet_names:
+            original_campaign_sheet_name = "Sponsored Products-Kampagnen"
+            st.success(f"Found 'Sponsored Products-Kampagnen' sheet for bid modifications!")
+        else:
+            for sheet in all_sheet_names:
+                if "Kampagne" in sheet or "Campaign" in sheet or "Sponsored Products" in sheet:
+                    original_campaign_sheet_name = sheet
+                    break
+
+        if not original_campaign_sheet_name:
+            st.error("Could not find 'Sponsored Products-Kampagnen' sheet. This is required for making bid changes.")
+            return None, None, None, None, None, None, None
 
         if not original_search_terms_sheet_name:
-            st.warning("Could not find 'SP Bericht Suchbegriff' or any search terms sheet. Please select manually.")
+            st.warning("Could not find 'SP Bericht Suchbegriff' sheet. Analysis will be limited.")
             original_search_terms_sheet_name = st.selectbox(
-                "Select Search Terms Sheet", options=all_sheet_names, index=0 if all_sheet_names else None, key="select_search_sheet_import_dtype"
+                "Select Search Terms Sheet for Analysis", options=all_sheet_names, index=0 if all_sheet_names else None, key="select_search_sheet_analysis"
             )
-        st.info(f"Using '{original_search_terms_sheet_name}' for search terms data")
 
-        # --- Load Raw Data with dtype=str for Search Terms, then selectively convert numerics ---
-        # Load all columns as string first to preserve text-like IDs etc.
-        df_search_terms_raw = pd.read_excel(file_path, sheet_name=original_search_terms_sheet_name, dtype=str)
-        raw_search_term_columns = list(df_search_terms_raw.columns) # Get original column names
+        st.info(f"Using '{original_campaign_sheet_name}' for bid changes")
+        st.info(f"Using '{original_search_terms_sheet_name}' for keyword analysis")
 
-        # Identify columns that should be numeric BEFORE normalization/mapping
-        # These are common metric column names in German or English reports
-        # We'll try to convert these based on their original names.
-        potential_numeric_cols_search_terms_original_names = [
-            'Klicks', 'Clicks', 'Impressionen', 'Impressions',
-            'Ausgaben', 'Spend', 'Umsatz', 'Sales', 'Verkäufe', # Verkäufe often means revenue/sales
-            'Bestellungen', 'Orders',
-            'CPC', 'Kosten pro Klick',
-            'Conversion Rate', 'Konversionsrate',
-            'ACoS', 'Ziel-ACoS' # and similar for ACOS
-            # Add other known original numeric column names if necessary
-        ]
-
-        for orig_col_name in raw_search_term_columns:
-            if orig_col_name in potential_numeric_cols_search_terms_original_names:
-                # Coerce errors: if a value can't be converted, it becomes NaN
-                df_search_terms_raw[orig_col_name] = pd.to_numeric(df_search_terms_raw[orig_col_name], errors='coerce')
-                st.info(f"Converted column '{orig_col_name}' to numeric.")
+        # --- Load Campaign Sheet (Primary for Changes) ---
+        df_campaign_raw = pd.read_excel(file_path, sheet_name=original_campaign_sheet_name)
+        raw_campaign_columns = list(df_campaign_raw.columns)
         
-        # --- Identify Original Key Columns for Export (after potential numeric conversion) ---
-        column_mappings_search_terms = {
-            'suchbegriff': 'customer_search_term', 'suchbegriff eines kunden': 'customer_search_term', 'customer search term': 'customer_search_term',
-            'keyword-text': 'keyword', 'keyword text': 'keyword', 'keyword': 'keyword',
-            'klicks': 'clicks', 'impressionen': 'impressions', 'ausgaben': 'spend', 'verkäufe': 'sales', 'umsatz':'sales',
-            'bestellungen': 'orders', 'acos': 'acos', 'conversion rate': 'conversion_rate',
-            'konversionsrate': 'conversion_rate', 'cpc': 'cpc', 'kosten pro klick': 'cpc', 'roas': 'roas'
+        # Define mappings for campaign sheet (where changes will be made)
+        column_mappings_campaign = {
+            'kampagne': 'campaign_name', 'kampagnenname': 'campaign_name', 'campaign': 'campaign_name',
+            'tagesbudget': 'daily_budget', 'status': 'status', 'gebotstyp': 'bidding_strategy', 
+            'anzeigengruppe': 'ad_group_name', 'anzeigengruppenname': 'ad_group_name', 'ad_group': 'ad_group_name',
+            'max._gebot': 'max_bid', 'maximales_gebot': 'max_bid', 'max_bid': 'max_bid',
+            'gebot': 'max_bid',
+            'keyword-text': 'keyword', 'keyword_text': 'keyword', 'keyword': 'keyword',
+            'klicks': 'clicks', 'impressionen': 'impressions', 'ausgaben': 'spend', 'verkäufe': 'sales',
+            'bestellungen': 'orders', 'acos': 'acos', 'conversion_rate': 'conversion_rate',
+            'konversionsrate': 'conversion_rate', 'cpc': 'cpc', 'kosten_pro_klick': 'cpc', 'roas': 'roas'
         }
 
+        # Identify original keyword and bid columns in campaign sheet
         identified_original_keyword_column = None
         identified_original_bid_target_column = None
 
         preferred_keyword_keys_normalized = ['keyword-text', 'keyword_text', 'keyword']
-        for orig_col_name in raw_search_term_columns:
-            norm_col = str(orig_col_name).lower().strip().replace(' ', '_') # Ensure orig_col_name is string for .lower()
-            if norm_col in preferred_keyword_keys_normalized and column_mappings_search_terms.get(norm_col) == 'keyword':
+        for orig_col_name in raw_campaign_columns:
+            norm_col = orig_col_name.lower().strip().replace(' ', '_')
+            if norm_col in preferred_keyword_keys_normalized and column_mappings_campaign.get(norm_col) == 'keyword':
                 identified_original_keyword_column = orig_col_name
                 break
-        if not identified_original_keyword_column:
-             for orig_col_name in raw_search_term_columns:
-                norm_col = str(orig_col_name).lower().strip().replace(' ', '_')
-                if column_mappings_search_terms.get(norm_col) == 'keyword':
-                    identified_original_keyword_column = orig_col_name
-                    break
         
-        preferred_cpc_keys_normalized = ['kosten_pro_klick', 'cpc']
-        for orig_col_name in raw_search_term_columns:
-            norm_col = str(orig_col_name).lower().strip().replace(' ', '_')
-            if norm_col in preferred_cpc_keys_normalized and column_mappings_search_terms.get(norm_col) == 'cpc':
+        preferred_bid_keys_normalized = ['max._gebot', 'maximales_gebot', 'max_bid', 'cpc', 'kosten_pro_klick', 'gebot']
+        for orig_col_name in raw_campaign_columns:
+            norm_col = orig_col_name.lower().strip().replace(' ', '_')
+            if norm_col in preferred_bid_keys_normalized and (column_mappings_campaign.get(norm_col) in ['max_bid', 'cpc']):
                 identified_original_bid_target_column = orig_col_name
                 break
-        if not identified_original_bid_target_column:
-            for orig_col_name in raw_search_term_columns:
-                norm_col = str(orig_col_name).lower().strip().replace(' ', '_')
-                if column_mappings_search_terms.get(norm_col) == 'cpc':
-                    identified_original_bid_target_column = orig_col_name
-                    break
-        
-        # --- Prepare DataFrames for Processing ---
-        df_search_terms_processed = df_search_terms_raw.copy()
-        
-        if original_campaign_sheet_name:
-            df_campaign_raw = pd.read_excel(file_path, sheet_name=original_campaign_sheet_name, dtype=str)
-            raw_campaign_columns = list(df_campaign_raw.columns)
-            st.info(f"Using '{original_campaign_sheet_name}' for campaign data. Original columns: {raw_campaign_columns}")
+
+        # --- Load Search Terms Sheet (Analysis Only) ---
+        df_search_terms_processed = None
+        if original_search_terms_sheet_name:
+            df_search_terms_raw = pd.read_excel(file_path, sheet_name=original_search_terms_sheet_name)
+            df_search_terms_processed = df_search_terms_raw.copy()
+            df_search_terms_processed.columns = [col.lower().strip().replace(' ', '_') for col in df_search_terms_processed.columns]
             
-            potential_numeric_cols_campaign_original_names = [
-                'Tagesbudget', 'Daily Budget', 'Max. Gebot', 'Max Bid'
-                # Add other known original campaign numeric columns if necessary
-            ]
-            for orig_col_name in raw_campaign_columns:
-                if orig_col_name in potential_numeric_cols_campaign_original_names:
-                    df_campaign_raw[orig_col_name] = pd.to_numeric(df_campaign_raw[orig_col_name], errors='coerce')
-                    # st.info(f"Campaign: Converted column '{orig_col_name}' to numeric.")
+            # Define mappings for search terms (analysis only)
+            column_mappings_search_terms = {
+                'suchbegriff': 'customer_search_term', 'suchbegriff_eines_kunden': 'customer_search_term', 'customer_search_term': 'customer_search_term',
+                'keyword-text': 'keyword', 'keyword_text': 'keyword', 'keyword': 'keyword',
+                'klicks': 'clicks', 'impressionen': 'impressions', 'ausgaben': 'spend', 'verkäufe': 'sales',
+                'bestellungen': 'orders', 'acos': 'acos', 'conversion_rate': 'conversion_rate',
+                'konversionsrate': 'conversion_rate', 'cpc': 'cpc', 'kosten_pro_klick': 'cpc', 'roas': 'roas'
+            }
             
-            df_campaign_processed = df_campaign_raw.copy()
-            if not df_campaign_processed.empty:
-                 df_campaign_processed.columns = [str(col).lower().strip().replace(' ', '_') for col in df_campaign_processed.columns]
-        else:
-            df_campaign_processed = pd.DataFrame(columns=['campaign_name', 'daily_budget', 'status'])
-            st.warning("No campaign sheet found. Created a placeholder campaign dataframe.")
-
-        st.info(f"Search terms sheet original columns (after initial numeric conversion): {', '.join(df_search_terms_processed.columns)}")
-        # Normalize column names AFTER selective numeric conversion and original name identification
-        df_search_terms_processed.columns = [str(col).lower().strip().replace(' ', '_') for col in df_search_terms_processed.columns]
+            df_search_terms_processed = rename_columns_for_processing(df_search_terms_processed, column_mappings_search_terms)
+            
+            # Calculate derived metrics for analysis
+            if 'conversion_rate' not in df_search_terms_processed.columns and 'orders' in df_search_terms_processed.columns and 'clicks' in df_search_terms_processed.columns:
+                df_search_terms_processed['conversion_rate'] = (df_search_terms_processed['orders'] / df_search_terms_processed['clicks'].replace(0, float('nan'))) * 100
+            if 'acos' not in df_search_terms_processed.columns and 'spend' in df_search_terms_processed.columns and 'sales' in df_search_terms_processed.columns:
+                df_search_terms_processed['acos'] = (df_search_terms_processed['spend'] / df_search_terms_processed['sales'].replace(0, float('nan'))) * 100
         
-        # --- Column Mapping for Processing ---
-        column_mappings_campaign_proc = {
-            'kampagne': 'campaign_name', 'kampagnenname': 'campaign_name', 'tagesbudget': 'daily_budget',
-            'status': 'status', 'gebotstyp': 'bidding_strategy', 'anzeigengruppe': 'ad_group_name',
-            'anzeigengruppenname': 'ad_group_name', 'max._gebot': 'max_bid', 'maximales_gebot': 'max_bid',
-            'campaign_id': 'campaign_id', 'kampagnen-id': 'campaign_id', # Assuming campaign IDs should be kept as strings
-            'ad_group_id': 'ad_group_id', 'anzeigengruppen-id': 'ad_group_id' # Assuming ad group IDs should be kept as strings
-        }
-        # Search terms mapping is already defined as column_mappings_search_terms
-
-        if not df_campaign_processed.empty:
-            df_campaign_processed = rename_columns_for_processing(df_campaign_processed, column_mappings_campaign_proc)
-        df_search_terms_processed = rename_columns_for_processing(df_search_terms_processed, column_mappings_search_terms)
+        # --- Process Campaign Sheet (Primary Data) ---
+        df_campaign_processed = df_campaign_raw.copy()
+        st.info(f"Campaign sheet original columns: {', '.join(raw_campaign_columns)}")
+        df_campaign_processed.columns = [col.lower().strip().replace(' ', '_') for col in df_campaign_processed.columns]
+        df_campaign_processed = rename_columns_for_processing(df_campaign_processed, column_mappings_campaign)
         
-        # --- Handle Missing Required Columns for Processing ---
-        required_search_cols_proc = ['keyword', 'customer_search_term', 'clicks', 'spend']
-        missing_cols_proc = [col for col in required_search_cols_proc if col not in df_search_terms_processed.columns]
+        # Handle missing required columns for campaign processing
+        required_campaign_cols = ['keyword', 'clicks', 'spend']
+        missing_cols = [col for col in required_campaign_cols if col not in df_campaign_processed.columns]
         
-        if missing_cols_proc:
-            st.warning(f"Missing required columns for processing after mapping: {', '.join(missing_cols_proc)}")
-            if 'keyword' in missing_cols_proc and identified_original_keyword_column:
-                 # If 'keyword' is missing but we know the original, try to map it again based on its normalized original name
-                 norm_orig_kw_col = str(identified_original_keyword_column).lower().strip().replace(' ', '_')
-                 if norm_orig_kw_col in df_search_terms_processed.columns and norm_orig_kw_col != 'keyword':
-                     df_search_terms_processed.rename(columns={norm_orig_kw_col: 'keyword'}, inplace=True)
-                     if 'keyword' in missing_cols_proc: missing_cols_proc.remove('keyword')
-                     st.info(f"Re-mapped '{norm_orig_kw_col}' to 'keyword' for processing.")
-            if 'customer_search_term' in missing_cols_proc:
-                 # Similar logic for customer_search_term if needed for processing, though less critical for *bid export*
-                 pass # Add user selection if customer_search_term is vital and missing
-
-            for col in missing_cols_proc: # Handle other missing like clicks, spend
+        if missing_cols:
+            st.warning(f"Missing required columns in campaign sheet: {', '.join(missing_cols)}")
+            for col in missing_cols:
                 if col in ['clicks', 'spend', 'sales', 'orders']:
-                    df_search_terms_processed[col] = 0
-                elif col in ['keyword', 'customer_search_term']: # If still missing, use empty string
-                     df_search_terms_processed[col] = ""
+                    df_campaign_processed[col] = 0
+                else:
+                    df_campaign_processed[col] = ""
         
-        # Final check for export-critical original columns
+        # Calculate derived metrics for campaign data
+        if 'conversion_rate' not in df_campaign_processed.columns and 'orders' in df_campaign_processed.columns and 'clicks' in df_campaign_processed.columns:
+            df_campaign_processed['conversion_rate'] = (df_campaign_processed['orders'] / df_campaign_processed['clicks'].replace(0, float('nan'))) * 100
+        if 'acos' not in df_campaign_processed.columns and 'spend' in df_campaign_processed.columns and 'sales' in df_campaign_processed.columns:
+            df_campaign_processed['acos'] = (df_campaign_processed['spend'] / df_campaign_processed['sales'].replace(0, float('nan'))) * 100
+        
+        # Final validation
         if not identified_original_keyword_column:
-            st.error("The primary KEYWORD column for matching bids could not be identified. Export might not work correctly.")
+            st.error("The primary KEYWORD column in campaign sheet could not be identified. Bid changes will not work.")
         if not identified_original_bid_target_column:
-            st.error("The BID/CPC column for updating bids could not be identified. Export might not work correctly.")
+            st.error("The BID/CPC column in campaign sheet could not be identified. Bid changes will not work.")
 
-
-        # --- Calculate Derived Metrics if Missing (ACOS, Conversion Rate) ---
-        if 'conversion_rate' not in df_search_terms_processed.columns and 'orders' in df_search_terms_processed.columns and 'clicks' in df_search_terms_processed.columns:
-            # Ensure clicks and orders are numeric before division
-            df_search_terms_processed['orders'] = pd.to_numeric(df_search_terms_processed['orders'], errors='coerce').fillna(0)
-            df_search_terms_processed['clicks'] = pd.to_numeric(df_search_terms_processed['clicks'], errors='coerce').fillna(0)
-            df_search_terms_processed['conversion_rate'] = (df_search_terms_processed['orders'] / df_search_terms_processed['clicks'].replace(0, float('nan'))) * 100
-        if 'acos' not in df_search_terms_processed.columns and 'spend' in df_search_terms_processed.columns and 'sales' in df_search_terms_processed.columns:
-            df_search_terms_processed['spend'] = pd.to_numeric(df_search_terms_processed['spend'], errors='coerce').fillna(0)
-            df_search_terms_processed['sales'] = pd.to_numeric(df_search_terms_processed['sales'], errors='coerce').fillna(0)
-            df_search_terms_processed['acos'] = (df_search_terms_processed['spend'] / df_search_terms_processed['sales'].replace(0, float('nan'))) * 100
-        
-        st.success(f"Processed search terms data columns: {', '.join(df_search_terms_processed.columns)}")
+        st.success(f"Processed campaign data columns: {', '.join(df_campaign_processed.columns)}")
+        if df_search_terms_processed is not None:
+            st.success(f"Processed search terms data for analysis: {', '.join(df_search_terms_processed.columns)}")
         
         return (
             df_campaign_processed, df_search_terms_processed, 
             original_search_terms_sheet_name, original_campaign_sheet_name,
             identified_original_keyword_column, identified_original_bid_target_column,
-            all_sheet_names # Pass all original sheet names for preserving order/all sheets
+            all_sheet_names
         )
         
     except Exception as e:
         st.error(f"Error processing Excel file: {str(e)}")
         import traceback
         st.code(traceback.format_exc())
-        # Return None for all expected values on error to allow graceful failure upstream
         return None, None, None, None, None, None, None
 
-def rename_columns_for_processing(df, mapping):
+def rename_columns_for_processing(df, mapping): # Renamed from just rename_columns
     renamed_df = df.copy()
-    current_columns = list(renamed_df.columns) # Operate on a copy of column names
-    new_column_names = {} # To avoid direct modification issues during iteration
-
-    for col_original in current_columns:
-        col_lower_normalized = str(col_original).lower().strip().replace(' ', '_') # Ensure str before lower
+    for col_original_case_sensitive in list(renamed_df.columns): # Iterate over a copy of column names
+        col_lower_normalized = col_original_case_sensitive.lower().strip().replace(' ', '_')
         if col_lower_normalized in mapping:
-            desired_new_name = mapping[col_lower_normalized]
-            # Only rename if the new name isn't already taken by another original column
-            # or if it's a direct self-map (col_original maps to itself essentially)
-            if desired_new_name not in new_column_names.values() or new_column_names.get(col_original) == desired_new_name:
-                 new_column_names[col_original] = desired_new_name
-            # If desired_new_name is already a target for a *different* original column, prioritize first mapping
-            # This simple approach might need refinement for complex conflicts, but good for now.
+            new_name = mapping[col_lower_normalized]
+            # Ensure we don't overwrite an already correctly named column by a less specific mapping
+            # E.g. if 'keyword' column already exists, don't let 'keyword_text' mapping overwrite it if 'keyword' itself was also a mapping key
+            if new_name not in renamed_df.columns or col_original_case_sensitive == new_name : # or if mapping to itself (idempotent)
+                 renamed_df = renamed_df.rename(columns={col_original_case_sensitive: new_name})
+            elif new_name in renamed_df.columns and col_original_case_sensitive != new_name:
+                 # A column with the target new_name already exists, and it's not the current one.
+                 # This implies a conflict or a more specific mapping already applied.
+                 # For now, we'll assume the first applied mapping or existing column is preferred.
+                 # Or, one could collect conflicts.
+                 pass
 
-    # Apply renames from the collected map
-    # This handles cases where multiple original columns might map to the same new_name
-    # (e.g., 'keyword' and 'keyword text' both map to 'keyword') - the last one in mapping usually wins if not careful.
-    # A more robust way is to ensure mapping keys are unique or prioritize.
-    # For now, directly use the rename method with the collected new names.
-    # Need to be careful if df.columns contains non-string types, hence the str() in normalization.
-    final_rename_map = {orig: new for orig, new in new_column_names.items() if orig in renamed_df.columns}
-    renamed_df.rename(columns=final_rename_map, inplace=True)
+
     return renamed_df 

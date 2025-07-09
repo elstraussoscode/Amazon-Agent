@@ -49,13 +49,20 @@ def main():
         with st.expander("Help with file upload", expanded=True):
             st.markdown("""
             ### Expected File Format
-            Please upload an Amazon Bulk Sheet Excel file. The primary sheet for analysis should be identifiable 
-            (e.g., named containing "Suchbegriff", "Search Term", or specifically "SP Bericht Suchbegriff").
+            Please upload an Amazon Bulk Sheet Excel file with the following sheets:
             
-            **Key columns expected for optimization** (names can vary, common German/English versions handled):
-            - A column for **Keywords** (e.g., "Keyword-Text", "Keyword") - used for bid adjustments.
-            - A column for **Customer Search Terms** (e.g., "Suchbegriff eines Kunden", "Customer Search Term") - used for analysis.
-            - Columns for performance metrics: **Clicks**, **Spend**, Orders, Sales, CPC, etc.
+            **Required for bid changes:**
+            - **Sponsored Products-Kampagnen** sheet - This is where all bid modifications will be made
+            
+            **Optional for analysis:**
+            - **SP Bericht Suchbegriff** sheet - Used only to analyze keyword outliers (bad ACOS, ACOS=0, or very low ACOS keywords)
+            
+            **Key columns expected in Sponsored Products-Kampagnen sheet:**
+            - **Keywords** (e.g., "Keyword-Text", "Keyword") - used for matching and bid adjustments
+            - **Bids** (e.g., "Max. Gebot", "CPC", "Maximales Gebot") - the bid amounts that will be updated
+            - Performance metrics: **Clicks**, **Spend**, Orders, Sales, ACOS, etc.
+            
+            The system will identify keyword outliers from the search terms sheet and apply bid changes to the campaign sheet.
             """)
         
         uploaded_file = st.file_uploader("Choose an Amazon Bulk Sheet (Excel)", type=["xlsx"])
@@ -86,26 +93,26 @@ def main():
                         all_original_sheet_names
                     ) = processed_data
                 
-                if df_search_terms is None or df_search_terms.empty:
-                    st.error("Could not extract valid search terms data. Please check the file and selected sheet.")
+                if df_campaign is None or df_campaign.empty:
+                    st.error("Could not extract valid campaign data. Please check the file and ensure 'Sponsored Products-Kampagnen' sheet exists.")
                     return
                 
-                st.subheader("Preview of Campaign Data")
-                if df_campaign is not None and not df_campaign.empty:
-                    st.dataframe(df_campaign.head(), use_container_width=True)
-                else:
-                    st.warning("No campaign data found or processed.")
+                st.subheader("Preview of Campaign Data (Primary for Changes)")
+                st.dataframe(df_campaign.head(), use_container_width=True)
                 
-                st.subheader("Preview of Search Terms Data (Processed)")
-                st.dataframe(df_search_terms.head(), use_container_width=True)
+                if df_search_terms is not None and not df_search_terms.empty:
+                    st.subheader("Preview of Search Terms Data (Analysis Only)")
+                    st.dataframe(df_search_terms.head(), use_container_width=True)
+                else:
+                    st.warning("No search terms data found. Analysis will be limited to campaign data only.")
                     
                 can_continue = True
-                # Ensure essential columns for optimizer are present in the *processed* df_search_terms
-                if 'keyword' not in df_search_terms.columns:
-                    st.error("Processed data is missing the 'keyword' column. Cannot continue.")
+                # Ensure essential columns for optimizer are present in the campaign data
+                if 'keyword' not in df_campaign.columns:
+                    st.error("Campaign data is missing the 'keyword' column. Cannot continue.")
                     can_continue = False
-                if 'clicks' not in df_search_terms.columns or 'spend' not in df_search_terms.columns:
-                    st.error("Processed data is missing 'clicks' or 'spend' columns. Cannot continue.")
+                if 'clicks' not in df_campaign.columns or 'spend' not in df_campaign.columns:
+                    st.error("Campaign data is missing 'clicks' or 'spend' columns. Cannot continue.")
                     can_continue = False
                 
                 if can_continue:

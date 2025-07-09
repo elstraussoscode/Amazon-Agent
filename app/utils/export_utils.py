@@ -7,19 +7,19 @@ def generate_export_excel(original_excel_path: str,
                           search_terms_sheet_name: str,
                           keyword_match_col_original_name: str,
                           bid_update_col_original_name: str,
-                          campaign_sheet_name: str = None, # Optional: original campaign sheet name
+                          campaign_sheet_name: str = None, # Now required: original campaign sheet name
                           all_original_sheet_names: list = None):
     """
-    Generates an Excel file in memory with updated bids.
+    Generates an Excel file in memory with updated bids in the campaign sheet.
 
     Args:
         original_excel_path (str): Path to the originally uploaded Excel file.
         bid_changes (list): List of dictionaries with bid change information 
                               (must contain 'keyword' and 'new_bid').
-        search_terms_sheet_name (str): The original name of the search terms sheet.
-        keyword_match_col_original_name (str): Original name of the column to match keywords on.
-        bid_update_col_original_name (str): Original name of the column where bids should be updated.
-        campaign_sheet_name (str, optional): Original name of the campaign sheet, if any.
+        search_terms_sheet_name (str): The original name of the search terms sheet (for analysis reference).
+        keyword_match_col_original_name (str): Original name of the column to match keywords on in campaign sheet.
+        bid_update_col_original_name (str): Original name of the column where bids should be updated in campaign sheet.
+        campaign_sheet_name (str, required): Original name of the campaign sheet where changes are made.
         all_original_sheet_names (list, optional): List of all original sheet names to preserve order and other sheets.
 
     Returns:
@@ -28,8 +28,8 @@ def generate_export_excel(original_excel_path: str,
     if not original_excel_path:
         st.error("Export Error: Original Excel file path is missing.")
         return None
-    if not search_terms_sheet_name:
-        st.error("Export Error: Original search terms sheet name is missing.")
+    if not campaign_sheet_name:
+        st.error("Export Error: Campaign sheet name is required for making bid changes.")
         return None
     if not keyword_match_col_original_name:
         st.error("Export Error: Original keyword column name for matching is missing.")
@@ -44,73 +44,101 @@ def generate_export_excel(original_excel_path: str,
         # Use all_original_sheet_names if provided and valid, otherwise default to xls.sheet_names
         sheet_names_to_process = all_original_sheet_names if all_original_sheet_names and len(all_original_sheet_names) > 0 else xls.sheet_names
         
-        sheets_data_processed = {}
+        sheets_data = {}
         for name in sheet_names_to_process:
             if name in xls.sheet_names: # Ensure the sheet actually exists in the file
-                 df_sheet = xls.parse(name)
-                 # Convert object columns to string, except for known date/datetime (if any, not expected here for main sheets)
-                 for col in df_sheet.select_dtypes(include=['object']).columns:
-                     # A more robust check would be to see if a column is *intended* to be numeric but is object due to mixed types
-                     # For now, a simple object -> str conversion for non-metrics is a safe default for this app's data.
-                     # We specifically ensure the bid_update_col_original_name is numeric later if it's this sheet.
-                     if name != search_terms_sheet_name or col != bid_update_col_original_name:
-                        try:
-                            # Attempt to convert to numeric first to see if it's mostly numbers being misinterpreted as object
-                            # If it fails, then convert to string. This handles columns with mixed numbers and text better.
-                            pd.to_numeric(df_sheet[col])
-                            # If it is numeric, let pandas handle its type or Excel will do it.
-                        except (ValueError, TypeError):
-                            df_sheet[col] = df_sheet[col].astype(str).fillna('') # fillna for safety before str conversion
-                 sheets_data_processed[name] = df_sheet
+                 sheets_data[name] = xls.parse(name)
             else:
                  st.warning(f"Export Warning: Sheet '{name}' was listed but not found in the original file. It will be skipped.")
 
-        if search_terms_sheet_name not in sheets_data_processed:
-            st.error(f"Export Error: Search term sheet '{search_terms_sheet_name}' not found after loading Excel data.")
+        if campaign_sheet_name not in sheets_data:
+            st.error(f"Export Error: Campaign sheet '{campaign_sheet_name}' not found in the loaded Excel data.")
             return None
 
-        df_to_update = sheets_data_processed[search_terms_sheet_name] # This is already a copy from the loop above
+        df_to_update = sheets_data[campaign_sheet_name].copy() # Work on campaign sheet copy
 
         if keyword_match_col_original_name not in df_to_update.columns:
-            st.error(f"Export Error: Keyword match column '{keyword_match_col_original_name}' not found in sheet '{search_terms_sheet_name}'.")
+            st.error(f"Export Error: Keyword match column '{keyword_match_col_original_name}' not found in sheet '{campaign_sheet_name}'. Available: {df_to_update.columns.tolist()}")
             return None
         if bid_update_col_original_name not in df_to_update.columns:
-            st.error(f"Export Error: Bid update column '{bid_update_col_original_name}' not found in sheet '{search_terms_sheet_name}'.")
+            st.error(f"Export Error: Bid update column '{bid_update_col_original_name}' not found in sheet '{campaign_sheet_name}'. Available: {df_to_update.columns.tolist()}")
             return None
 
-        # Ensure the matching column is of string type for reliable matching
-        df_to_update[keyword_match_col_original_name] = df_to_update[keyword_match_col_original_name].astype(str).fillna('')
+        # --- Clean Keyword Match Column ---------------------------------------------------
+        # Convert to string **after** filling NaNs so we do not get the literal string "nan".
+        df_to_update[keyword_match_col_original_name] = (
+            df_to_update[keyword_match_col_original_name]
+            .fillna("")          # real NaNs → blank strings
+            .astype(str)          # keep original text
+        )
+
+        # Remove any leftover literal "nan" / "None" strings that might already exist
+        df_to_update[keyword_match_col_original_name].replace(
+            to_replace=["nan", "NaN", "None"], value="", inplace=True
+        )
         
-        # Prepare bid update column to accept numeric data
+        # Prepare bid update column to accept numeric data, preserving existing numbers
         df_to_update[bid_update_col_original_name] = pd.to_numeric(df_to_update[bid_update_col_original_name], errors='coerce')
+
+        # Ensure an 'Operation' column exists (Amazon bulksheet expects this in column C).
+        # If not present, insert it as the third column (index 2) and default to empty strings.
+        if 'Operation' not in df_to_update.columns:
+            df_to_update.insert(2, 'Operation', '')
 
         updated_keywords_count = 0
         for change in bid_changes:
-            keyword_to_match = str(change.get('keyword', '')).strip() # Add strip for robustness
+            keyword_to_match = str(change.get('keyword', '')) # Ensure string for matching
             new_bid = change.get('new_bid')
-            if new_bid is None: continue
+
+            if new_bid is None: # Skip if no new_bid provided
+                continue
+            
             try:
                 new_bid_float = float(new_bid)
             except (ValueError, TypeError):
-                st.warning(f"Export Warning: Invalid new bid value '{new_bid}' for keyword '{keyword_to_match}'. Skipping.")
+                st.warning(f"Export Warning: Invalid new bid value '{new_bid}' for keyword '{keyword_to_match}'. Skipping this bid update.")
                 continue
-            
-            # Match considering keyword_to_match could have different casing than in the sheet, make comparison case-insensitive if needed
-            # For now, assuming original case sensitivity or that normalization handled it. If issues, make this case-insensitive.
-            match_mask = df_to_update[keyword_match_col_original_name].str.strip() == keyword_to_match
+
+            # --- Locate rows to update ----------------------------------------------------
+            # We only want to touch rows where the entity type is "Keyword" (German bulk-sheet column is
+            # usually called "Entität", English sheets use "Entity"). Detect that column once.
+            if 'Entität' in df_to_update.columns:
+                entity_col = 'Entität'
+            elif 'Entity' in df_to_update.columns:
+                entity_col = 'Entity'
+            else:
+                entity_col = None
+
+            if entity_col:
+                match_mask = (
+                    (df_to_update[keyword_match_col_original_name] == keyword_to_match) &
+                    (df_to_update[entity_col].astype(str).str.lower() == 'keyword')
+                )
+            else:
+                # Fallback: no entity column → behave as before
+                match_mask = df_to_update[keyword_match_col_original_name] == keyword_to_match
+
             match_indices = df_to_update[match_mask].index
             
             if not match_indices.empty:
                 df_to_update.loc[match_indices, bid_update_col_original_name] = new_bid_float
+                # Mark these rows for update in the Operation column
+                df_to_update.loc[match_indices, 'Operation'] = 'Update'
                 updated_keywords_count += len(match_indices)
+            # else:
+                # Optional: Log keywords from bid_changes not found in the sheet
+                # st.info(f"Export Info: Keyword '{keyword_to_match}' from bid changes not found in sheet '{campaign_sheet_name}'.")
         
-        st.info(f"Export Info: Updated bids for {updated_keywords_count} rows in sheet '{search_terms_sheet_name}'.")
-        sheets_data_processed[search_terms_sheet_name] = df_to_update # Put the updated df back
+        st.info(f"Export Info: Updated bids for {updated_keywords_count} rows in campaign sheet '{campaign_sheet_name}'.")
+
+        # Place the updated DataFrame back into the sheets_data dictionary
+        sheets_data[campaign_sheet_name] = df_to_update
 
         output_buffer = BytesIO()
         with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
-            for sheet_name_to_write, df_data in sheets_data_processed.items():
-                df_data.to_excel(writer, sheet_name=sheet_name_to_write, index=False)
+            for sheet_name_to_write in sheet_names_to_process:
+                if sheet_name_to_write in sheets_data: # Check if sheet was loaded
+                    sheets_data[sheet_name_to_write].to_excel(writer, sheet_name=sheet_name_to_write, index=False)
         
         output_buffer.seek(0)
         return output_buffer
