@@ -73,6 +73,7 @@ def process_amazon_report(file_path):
             'max._gebot': 'max_bid', 'maximales_gebot': 'max_bid', 'max_bid': 'max_bid',
             'gebot': 'max_bid',
             'keyword-text': 'keyword', 'keyword_text': 'keyword', 'keyword': 'keyword',
+            'übereinstimmungstyp': 'match_type', 'match_type': 'match_type', 'übereinstimmung': 'match_type',
             'klicks': 'clicks', 'impressionen': 'impressions', 'ausgaben': 'spend', 'verkäufe': 'sales',
             'bestellungen': 'orders', 'acos': 'acos', 'conversion_rate': 'conversion_rate',
             'konversionsrate': 'conversion_rate', 'cpc': 'cpc', 'kosten_pro_klick': 'cpc', 'roas': 'roas'
@@ -107,6 +108,7 @@ def process_amazon_report(file_path):
             column_mappings_search_terms = {
                 'suchbegriff': 'customer_search_term', 'suchbegriff_eines_kunden': 'customer_search_term', 'customer_search_term': 'customer_search_term',
                 'keyword-text': 'keyword', 'keyword_text': 'keyword', 'keyword': 'keyword',
+                'übereinstimmungstyp': 'match_type', 'match_type': 'match_type', 'übereinstimmung': 'match_type',
                 'klicks': 'clicks', 'impressionen': 'impressions', 'ausgaben': 'spend', 'verkäufe': 'sales',
                 'bestellungen': 'orders', 'acos': 'acos', 'conversion_rate': 'conversion_rate',
                 'konversionsrate': 'conversion_rate', 'cpc': 'cpc', 'kosten_pro_klick': 'cpc', 'roas': 'roas'
@@ -114,11 +116,11 @@ def process_amazon_report(file_path):
             
             df_search_terms_processed = rename_columns_for_processing(df_search_terms_processed, column_mappings_search_terms)
             
-            # Calculate derived metrics for analysis
+            # Only calculate metrics if they don't exist in the Excel file
             if 'conversion_rate' not in df_search_terms_processed.columns and 'orders' in df_search_terms_processed.columns and 'clicks' in df_search_terms_processed.columns:
-                df_search_terms_processed['conversion_rate'] = (df_search_terms_processed['orders'] / df_search_terms_processed['clicks'].replace(0, float('nan'))) * 100
+                df_search_terms_processed['conversion_rate'] = (df_search_terms_processed['orders'] / df_search_terms_processed['clicks'].replace(0, float('nan')))
             if 'acos' not in df_search_terms_processed.columns and 'spend' in df_search_terms_processed.columns and 'sales' in df_search_terms_processed.columns:
-                df_search_terms_processed['acos'] = (df_search_terms_processed['spend'] / df_search_terms_processed['sales'].replace(0, float('nan'))) * 100
+                df_search_terms_processed['acos'] = (df_search_terms_processed['spend'] / df_search_terms_processed['sales'].replace(0, float('nan')))
         
         # --- Process Campaign Sheet (Primary Data) ---
         df_campaign_processed = df_campaign_raw.copy()
@@ -138,11 +140,11 @@ def process_amazon_report(file_path):
                 else:
                     df_campaign_processed[col] = ""
         
-        # Calculate derived metrics for campaign data
+        # Only calculate metrics if they don't exist in the Excel file
         if 'conversion_rate' not in df_campaign_processed.columns and 'orders' in df_campaign_processed.columns and 'clicks' in df_campaign_processed.columns:
-            df_campaign_processed['conversion_rate'] = (df_campaign_processed['orders'] / df_campaign_processed['clicks'].replace(0, float('nan'))) * 100
+            df_campaign_processed['conversion_rate'] = (df_campaign_processed['orders'] / df_campaign_processed['clicks'].replace(0, float('nan')))
         if 'acos' not in df_campaign_processed.columns and 'spend' in df_campaign_processed.columns and 'sales' in df_campaign_processed.columns:
-            df_campaign_processed['acos'] = (df_campaign_processed['spend'] / df_campaign_processed['sales'].replace(0, float('nan'))) * 100
+            df_campaign_processed['acos'] = (df_campaign_processed['spend'] / df_campaign_processed['sales'].replace(0, float('nan')))
         
         # Final validation
         if not identified_original_keyword_column:

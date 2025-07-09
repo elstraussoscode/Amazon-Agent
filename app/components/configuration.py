@@ -52,14 +52,28 @@ def render_configuration():
         elif has_large_inventory:
             recommended_acos = 8.0
         
-        target_acos = st.slider(
-            "Target ACOS (%)", 
-            min_value=5.0, 
-            max_value=50.0, 
-            value=st.session_state.client_config.get('target_acos', recommended_acos),
-            step=0.5,
-            help="Target Advertising Cost of Sale percentage"
-        )
+        # Create two columns for target settings
+        col_acos, col_cr = st.columns(2)
+        
+        with col_acos:
+            target_acos = st.slider(
+                "Target ACOS (%)", 
+                min_value=5.0, 
+                max_value=50.0, 
+                value=st.session_state.client_config.get('target_acos', recommended_acos),
+                step=0.5,
+                help="Target Advertising Cost of Sale percentage"
+            )
+        
+        with col_cr:
+            min_conversion_rate = st.slider(
+                "Mindest Conversion Rate (%)", 
+                min_value=1.0, 
+                max_value=30.0, 
+                value=st.session_state.client_config.get('min_conversion_rate', 10.0),
+                step=0.5,
+                help="Keywords mit CR unter diesem Wert werden bei hohem ACOS pausiert"
+            )
         
         # Advanced options
         with st.expander("Advanced Options"):
@@ -69,15 +83,6 @@ def render_configuration():
                 max_value=100, 
                 value=st.session_state.client_config.get('keywords_min_clicks', 25),
                 help="Minimum number of clicks before a keyword is analyzed for performance"
-            )
-            
-            min_conversion_rate = st.slider(
-                "Minimum Conversion Rate (%)", 
-                min_value=1.0, 
-                max_value=30.0, 
-                value=st.session_state.client_config.get('min_conversion_rate', 10.0),
-                step=0.5,
-                help="Minimum conversion rate threshold for keywords"
             )
         
         # Submit button
@@ -106,7 +111,9 @@ def render_configuration():
         st.info(f"""
         **Client:** {config.get('client_name', 'Not set')}
         
-        **Target ACOS:** {config.get('target_acos', 20.0)}%
+        **Campaign Targets:**
+        - Target ACOS: {config.get('target_acos', 20.0)}%
+        - Mindest Conversion Rate: {config.get('min_conversion_rate', 10.0)}%
         
         **Client Type:**
         - Market Leader: {'✅' if config.get('is_market_leader', False) else '❌'}
@@ -114,5 +121,4 @@ def render_configuration():
         
         **Advanced Settings:**
         - Min. Clicks for Analysis: {config.get('keywords_min_clicks', 25)}
-        - Min. Conversion Rate: {config.get('min_conversion_rate', 10.0)}%
         """) 

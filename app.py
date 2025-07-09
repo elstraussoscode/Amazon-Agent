@@ -98,32 +98,13 @@ def main():
                     st.error("Konnte keine gültigen Kampagnendaten extrahieren. Bitte überprüfen Sie die Datei und stellen Sie sicher, dass das Blatt „Sponsored Products-Kampagnen“ existiert.")
                     return
                 
-                # --- Preview with original Spaltennamen ---
-                import pandas as pd
-                try:
-                    df_campaign_original_preview = pd.read_excel(
-                        temp_upload_filepath,
-                        sheet_name=original_campaign_sheet_name,
-                        nrows=5
-                    )
-                    st.subheader("Vorschau Kampagnendaten – Originalspalten")
-                    st.dataframe(df_campaign_original_preview, use_container_width=True)
-                except Exception as _:
-                    st.subheader("Vorschau Kampagnendaten (Basis für Änderungen)")
-                    st.dataframe(df_campaign.head(), use_container_width=True)
- 
+                # --- Preview processed data ---
+                st.subheader("Vorschau Kampagnendaten (Basis für Änderungen)")
+                st.dataframe(df_campaign.head(), use_container_width=True)
+                
                 if df_search_terms is not None and not df_search_terms.empty:
-                    try:
-                        df_st_original_preview = pd.read_excel(
-                            temp_upload_filepath,
-                            sheet_name=original_search_terms_sheet_name,
-                            nrows=5
-                        )
-                        st.subheader("Vorschau Suchbegriff-Daten – Originalspalten")
-                        st.dataframe(df_st_original_preview, use_container_width=True)
-                    except Exception:
-                        st.subheader("Vorschau Suchbegriff-Daten (nur Analyse)")
-                        st.dataframe(df_search_terms.head(), use_container_width=True)
+                    st.subheader("Vorschau Suchbegriff-Daten (nur Analyse)")
+                    st.dataframe(df_search_terms.head(), use_container_width=True)
                 else:
                     st.warning("Kein Suchbegriff-Sheet gefunden. Analyse beschränkt sich auf Kampagnendaten.")
                     

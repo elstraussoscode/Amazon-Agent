@@ -38,31 +38,31 @@ def analyze_keywords(state: PPCState) -> PPCState:
     # Initialize keyword changes list
     keyword_changes = []
     
-    # Get the target ACOS based on client configuration
-    target_acos = 20.0  # Default target
+    # Get the target ACOS based on client configuration (convert to decimal)
+    target_acos = 0.20  # Default target (20% as decimal)
     if client_config.get('is_market_leader', False):
-        target_acos = 8.0
+        target_acos = 0.08  # 8% as decimal
     if client_config.get('has_large_inventory', False):
-        target_acos = 8.0
+        target_acos = 0.08  # 8% as decimal
     # Override with explicit target if provided
     if 'target_acos' in client_config and client_config['target_acos'] is not None:
-        target_acos = float(client_config['target_acos'])
+        target_acos = float(client_config['target_acos']) / 100  # Convert percentage to decimal
     
-    # Ensure required columns exist with defaults if missing
+    # Ensure required columns exist with defaults if missing - prefer values from Excel
     for col in ['clicks', 'orders', 'acos', 'conversion_rate']:
         if col not in df_search_terms.columns:
             if col in ['clicks', 'orders']:
                 df_search_terms[col] = 0
             elif col == 'acos':
-                # Calculate ACOS if possible, otherwise set to NaN
+                # Only calculate ACOS if not available in Excel (as decimal value)
                 if 'spend' in df_search_terms.columns and 'sales' in df_search_terms.columns:
-                    df_search_terms[col] = (df_search_terms['spend'] / df_search_terms['sales'].replace(0, np.nan)) * 100
+                    df_search_terms[col] = (df_search_terms['spend'] / df_search_terms['sales'].replace(0, np.nan))
                 else:
                     df_search_terms[col] = np.nan
             elif col == 'conversion_rate':
-                # Calculate conversion rate if possible, otherwise set to NaN
+                # Only calculate conversion rate if not available in Excel (as decimal value)
                 if 'clicks' in df_search_terms.columns and 'orders' in df_search_terms.columns:
-                    df_search_terms[col] = (df_search_terms['orders'] / df_search_terms['clicks'].replace(0, np.nan)) * 100
+                    df_search_terms[col] = (df_search_terms['orders'] / df_search_terms['clicks'].replace(0, np.nan))
                 else:
                     df_search_terms[col] = np.nan
     
@@ -89,7 +89,7 @@ def analyze_keywords(state: PPCState) -> PPCState:
         })
     
     # Rule 2: Pause keywords with ACOS > target and CR < 10%
-    min_conversion_rate = client_config.get('min_conversion_rate', 10.0)
+    min_conversion_rate = client_config.get('min_conversion_rate', 10.0) / 100  # Convert to decimal
     # Handle NaN values properly in the comparison
     mask_high_acos_low_cr = (
         (~pd.isna(df_search_terms['acos'])) & 
@@ -106,8 +106,8 @@ def analyze_keywords(state: PPCState) -> PPCState:
         search_term = row['customer_search_term'] if 'customer_search_term' in row else row['search_term']
         
         # Handle the case where conversion_rate might be NaN
-        cr_display = f"{row['conversion_rate']:.1f}%" if not pd.isna(row['conversion_rate']) else "N/A"
-        acos_display = f"{row['acos']:.1f}%" if not pd.isna(row['acos']) else "N/A"
+        cr_display = f"{row['conversion_rate']*100:.1f}%" if not pd.isna(row['conversion_rate']) else "N/A"
+        acos_display = f"{row['acos']*100:.1f}%" if not pd.isna(row['acos']) else "N/A"
         
         keyword_changes.append({
             'keyword': keyword,
@@ -117,9 +117,9 @@ def analyze_keywords(state: PPCState) -> PPCState:
             'original_data': {k: v for k, v in row.items() if k in ['clicks', 'orders', 'acos', 'conversion_rate']}
         })
     
-    # Rule 3: Keep keywords with ACOS ≤ target OR CR ≥ 10%
+    # Rule 3: Keep keywords with ACOS ≤ target AND CR ≥ min_conversion_rate
     mask_keep = (
-        (pd.isna(df_search_terms['acos']) | (df_search_terms['acos'] <= target_acos)) | 
+        (~pd.isna(df_search_terms['acos']) & (df_search_terms['acos'] <= target_acos)) & 
         (~pd.isna(df_search_terms['conversion_rate']) & (df_search_terms['conversion_rate'] >= min_conversion_rate))
     )
     for _, row in df_search_terms[mask_keep].iterrows():
@@ -132,14 +132,14 @@ def analyze_keywords(state: PPCState) -> PPCState:
         search_term = row['customer_search_term'] if 'customer_search_term' in row else row['search_term']
         
         # Handle the case where metrics might be NaN
-        cr_display = f"{row['conversion_rate']:.1f}%" if not pd.isna(row['conversion_rate']) else "N/A"
-        acos_display = f"{row['acos']:.1f}%" if not pd.isna(row['acos']) else "N/A"
+        cr_display = f"{row['conversion_rate']*100:.1f}%" if not pd.isna(row['conversion_rate']) else "N/A"
+        acos_display = f"{row['acos']*100:.1f}%" if not pd.isna(row['acos']) else "N/A"
         
         keyword_changes.append({
             'keyword': keyword,
             'customer_search_term': search_term,
             'action': 'keep',
-            'reason': f"Good performance: ACOS ({acos_display}) or good conversion rate ({cr_display})",
+            'reason': f"Good performance: ACOS ({acos_display}) and good conversion rate ({cr_display})",
             'original_data': {k: v for k, v in row.items() if k in ['clicks', 'orders', 'acos', 'conversion_rate']}
         })
     
@@ -163,15 +163,15 @@ def adjust_bids(state: PPCState) -> PPCState:
     # Initialize bid changes list
     bid_changes = []
     
-    # Get the target ACOS based on client configuration
-    target_acos = 20.0  # Default target
+    # Get the target ACOS based on client configuration (convert to decimal)
+    target_acos = 0.20  # Default target (20% as decimal)
     if client_config.get('is_market_leader', False):
-        target_acos = 8.0
+        target_acos = 0.08  # 8% as decimal
     if client_config.get('has_large_inventory', False):
-        target_acos = 8.0
+        target_acos = 0.08  # 8% as decimal
     # Override with explicit target if provided
     if 'target_acos' in client_config and client_config['target_acos'] is not None:
-        target_acos = float(client_config['target_acos'])
+        target_acos = float(client_config['target_acos']) / 100  # Convert percentage to decimal
     
     # For each keyword with enough data, calculate the optimal bid
     mask_enough_data = df_search_terms['clicks'] > 10
@@ -240,13 +240,13 @@ def get_bid_change_reason(current_acos, target_acos, orders, clicks):
     if current_acos == 0 and orders == 0:
         return f"No conversions after {clicks} clicks"
     elif current_acos > target_acos * 1.5:
-        return f"ACOS ({current_acos:.1f}%) is much higher than target ({target_acos:.1f}%)"
+        return f"ACOS ({current_acos*100:.1f}%) is much higher than target ({target_acos*100:.1f}%)"
     elif current_acos > target_acos:
-        return f"ACOS ({current_acos:.1f}%) is higher than target ({target_acos:.1f}%)"
+        return f"ACOS ({current_acos*100:.1f}%) is higher than target ({target_acos*100:.1f}%)"
     elif current_acos < target_acos * 0.5 and orders > 0:
-        return f"ACOS ({current_acos:.1f}%) is much lower than target ({target_acos:.1f}%), room to bid higher for more traffic"
+        return f"ACOS ({current_acos*100:.1f}%) is much lower than target ({target_acos*100:.1f}%), room to bid higher for more traffic"
     elif current_acos < target_acos and orders > 0:
-        return f"ACOS ({current_acos:.1f}%) is below target ({target_acos:.1f}%), slight increase to get more traffic"
+        return f"ACOS ({current_acos*100:.1f}%) is below target ({target_acos*100:.1f}%), slight increase to get more traffic"
     else:
         return "Current performance is acceptable"
 

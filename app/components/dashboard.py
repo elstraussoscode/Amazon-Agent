@@ -63,7 +63,7 @@ def render_dashboard(optimization_results: Dict[str, Any]):
 
     with tab_bid:
         render_bid_changes_tab(bid_changes)
-
+    
     with tab_placement:
         render_placement_adjustments_tab(optimization_results.get('placement_adjustments', []))
 
@@ -186,14 +186,29 @@ def render_keyword_changes_tab(keyword_perf):
     import pandas as pd
     st.subheader("Keyword-Leistung")
 
-    # Display current target ACOS
-    target_acos = st.session_state.get('client_config', {}).get('target_acos', 20.0)
-    st.info(f"📊 **Aktueller Target ACOS:** {target_acos}% (Keywords mit ACOS ≤ {target_acos}% werden als 'gut' eingestuft)")
+    # Get current configuration values
+    client_config = st.session_state.get('client_config', {})
+    target_acos = client_config.get('target_acos', 20.0)
+    min_conversion_rate = client_config.get('min_conversion_rate', 10.0)
+    
+    st.info(f"📊 **Aktuelle Filter:** Target ACOS ≤ {target_acos}% UND Conversion Rate ≥ {min_conversion_rate}% = 'gut'")
 
     if not keyword_perf:
         st.info("Keine Keyword-Daten verfügbar")
         return
-
+    
+    # Re-classify keywords based on current configuration
+    if 'df_campaign' in st.session_state and st.session_state.df_campaign is not None:
+        from app.utils.keyword_classifier import classify_keywords
+        # Re-run classification with current config values
+        target_acos_decimal = target_acos / 100  # Convert to decimal for classifier
+        min_conversion_rate_decimal = min_conversion_rate / 100  # Convert to decimal for classifier
+        keyword_perf = classify_keywords(st.session_state.df_campaign, target_acos_decimal, min_conversion_rate_decimal)
+    
+    if not keyword_perf:
+        st.info("Keine Keyword-Daten verfügbar")
+        return
+    
     df_kw = pd.DataFrame(keyword_perf)
 
     for campaign_id, grp in df_kw.groupby('campaign_id'):
@@ -201,45 +216,77 @@ def render_keyword_changes_tab(keyword_perf):
 
         good = grp[grp['status'] == 'gut']
         bad = grp[grp['status'] == 'schlecht']
-
+        
         col1, col2 = st.columns(2)
-
+        
         with col1:
             st.subheader("Gut laufende Keywords")
             if good.empty:
                 st.info("Keine")
             else:
-                df_good = good[['keyword', 'clicks', 'spend', 'sales', 'acos', 'reason']].copy()
-                df_good = df_good.rename(columns={
+                # Include match_type, orders, and conversion_rate if available
+                cols_to_show = ['keyword', 'clicks', 'spend', 'sales', 'acos', 'reason']
+                if 'match_type' in good.columns:
+                    cols_to_show.insert(1, 'match_type')
+                if 'orders' in good.columns:
+                    cols_to_show.insert(-3, 'orders')  # Insert after clicks, before spend
+                if 'conversion_rate' in good.columns:
+                    cols_to_show.insert(-1, 'conversion_rate')  # Insert before reason
+                df_good = good[cols_to_show].copy()
+                
+                rename_dict = {
                     'keyword': 'Keyword',
                     'clicks': 'Klicks',
+                    'orders': 'Bestellungen',
                     'spend': 'Ausgaben',
                     'sales': 'Verkäufe',
                     'acos': 'ACOS %',
+                    'conversion_rate': 'CR %',
                     'reason': 'Grund'
-                })
-                # Format ACOS as Prozentwert
+                }
+                if 'match_type' in df_good.columns:
+                    rename_dict['match_type'] = 'Übereinstimmungstyp'
+                df_good = df_good.rename(columns=rename_dict)
+                # Format ACOS and CR as Prozentwert (convert from decimal)
                 if 'ACOS %' in df_good.columns:
-                    df_good['ACOS %'] = df_good['ACOS %'].apply(lambda x: round(x*100,2) if x <= 1 else round(x,2))
+                    df_good['ACOS %'] = df_good['ACOS %'].apply(lambda x: f"{round(x*100,2)}%" if not pd.isna(x) else 'N/A')
+                if 'CR %' in df_good.columns:
+                    df_good['CR %'] = df_good['CR %'].apply(lambda x: f"{round(x*100,2)}%" if not pd.isna(x) else 'N/A')
                 st.dataframe(df_good, use_container_width=True)
-
+        
         with col2:
             st.subheader("Schlecht laufende Keywords")
             if bad.empty:
                 st.info("Keine")
             else:
-                df_bad = bad[['keyword', 'clicks', 'spend', 'sales', 'acos', 'reason']].copy()
-                df_bad = df_bad.rename(columns={
+                # Include match_type, orders, and conversion_rate if available
+                cols_to_show = ['keyword', 'clicks', 'spend', 'sales', 'acos', 'reason']
+                if 'match_type' in bad.columns:
+                    cols_to_show.insert(1, 'match_type')
+                if 'orders' in bad.columns:
+                    cols_to_show.insert(-3, 'orders')  # Insert after clicks, before spend
+                if 'conversion_rate' in bad.columns:
+                    cols_to_show.insert(-1, 'conversion_rate')  # Insert before reason
+                df_bad = bad[cols_to_show].copy()
+                
+                rename_dict = {
                     'keyword': 'Keyword',
                     'clicks': 'Klicks',
+                    'orders': 'Bestellungen',
                     'spend': 'Ausgaben',
                     'sales': 'Verkäufe',
                     'acos': 'ACOS %',
+                    'conversion_rate': 'CR %',
                     'reason': 'Grund'
-                })
-                # Format ACOS as Prozentwert
+                }
+                if 'match_type' in df_bad.columns:
+                    rename_dict['match_type'] = 'Übereinstimmungstyp'
+                df_bad = df_bad.rename(columns=rename_dict)
+                # Format ACOS and CR as Prozentwert (convert from decimal)
                 if 'ACOS %' in df_bad.columns:
-                    df_bad['ACOS %'] = df_bad['ACOS %'].apply(lambda x: round(x*100,2) if x <= 1 else round(x,2))
+                    df_bad['ACOS %'] = df_bad['ACOS %'].apply(lambda x: f"{round(x*100,2)}%" if not pd.isna(x) else 'N/A')
+                if 'CR %' in df_bad.columns:
+                    df_bad['CR %'] = df_bad['CR %'].apply(lambda x: f"{round(x*100,2)}%" if not pd.isna(x) else 'N/A')
                 st.dataframe(df_bad, use_container_width=True)
 
 
@@ -275,24 +322,48 @@ def render_bid_changes_tab(bid_changes):
                     col_best, col_worst = st.columns(2)
                     with col_best:
                         st.markdown("**Beste 15 Suchbegriffe** (niedrigster ACOS)")
-                        df_best_disp = best15[['customer_search_term','clicks','spend','sales','acos_pct']].rename(columns={
+                        cols_best = ['customer_search_term','clicks','spend','sales','acos_pct']
+                        if 'match_type' in best15.columns:
+                            cols_best.insert(1, 'match_type')
+                        if 'orders' in best15.columns:
+                            cols_best.insert(-2, 'orders')  # Insert after clicks, before spend
+                        if 'conversion_rate' in best15.columns:
+                            cols_best.insert(-1, 'conversion_rate')
+                        df_best_disp = best15[cols_best].rename(columns={
                             'customer_search_term':'Suchbegriff',
+                            'match_type':'Übereinstimmungstyp',
                             'clicks':'Klicks',
+                            'orders':'Bestellungen',
                             'spend':'Ausgaben',
                             'sales':'Verkäufe',
+                            'conversion_rate':'CR %',
                             'acos_pct':'ACOS %'
                         })
+                        if 'CR %' in df_best_disp.columns:
+                            df_best_disp['CR %'] = df_best_disp['CR %'].apply(lambda x: f"{round(x*100,2)}%" if not pd.isna(x) else 'N/A')
                         st.dataframe(df_best_disp, use_container_width=True)
 
                     with col_worst:
                         st.markdown("**Schlechteste 15 Suchbegriffe** (höchster ACOS)")
-                        df_worst_disp = worst15[['customer_search_term','clicks','spend','sales','acos_pct']].rename(columns={
+                        cols_worst = ['customer_search_term','clicks','spend','sales','acos_pct']
+                        if 'match_type' in worst15.columns:
+                            cols_worst.insert(1, 'match_type')
+                        if 'orders' in worst15.columns:
+                            cols_worst.insert(-2, 'orders')  # Insert after clicks, before spend
+                        if 'conversion_rate' in worst15.columns:
+                            cols_worst.insert(-1, 'conversion_rate')
+                        df_worst_disp = worst15[cols_worst].rename(columns={
                             'customer_search_term':'Suchbegriff',
+                            'match_type':'Übereinstimmungstyp',
                             'clicks':'Klicks',
+                            'orders':'Bestellungen',
                             'spend':'Ausgaben',
                             'sales':'Verkäufe',
+                            'conversion_rate':'CR %',
                             'acos_pct':'ACOS %'
                         })
+                        if 'CR %' in df_worst_disp.columns:
+                            df_worst_disp['CR %'] = df_worst_disp['CR %'].apply(lambda x: round(x,2) if not pd.isna(x) else 'N/A')
                         st.dataframe(df_worst_disp, use_container_width=True)
 
                     with st.expander("Alle Suchbegriffe"):
@@ -301,13 +372,25 @@ def render_bid_changes_tab(bid_changes):
                             grp_nonzero.sort_values('acos'),
                             grp_zero
                         ])
-                        full_disp = full_sorted[['customer_search_term','clicks','spend','sales','acos_pct']].rename(columns={
+                        cols_full = ['customer_search_term','clicks','spend','sales','acos_pct']
+                        if 'match_type' in full_sorted.columns:
+                            cols_full.insert(1, 'match_type')
+                        if 'orders' in full_sorted.columns:
+                            cols_full.insert(-2, 'orders')  # Insert after clicks, before spend
+                        if 'conversion_rate' in full_sorted.columns:
+                            cols_full.insert(-1, 'conversion_rate')
+                        full_disp = full_sorted[cols_full].rename(columns={
                             'customer_search_term':'Suchbegriff',
+                            'match_type':'Übereinstimmungstyp',
                             'clicks':'Klicks',
+                            'orders':'Bestellungen',
                             'spend':'Ausgaben',
                             'sales':'Verkäufe',
+                            'conversion_rate':'CR %',
                             'acos_pct':'ACOS %'
                         })
+                        if 'CR %' in full_disp.columns:
+                            full_disp['CR %'] = full_disp['CR %'].apply(lambda x: round(x,2) if not pd.isna(x) else 'N/A')
                         st.dataframe(full_disp, use_container_width=True)
 
 
