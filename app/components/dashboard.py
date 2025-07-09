@@ -186,6 +186,10 @@ def render_keyword_changes_tab(keyword_perf):
     import pandas as pd
     st.subheader("Keyword-Leistung")
 
+    # Display current target ACOS
+    target_acos = st.session_state.get('client_config', {}).get('target_acos', 20.0)
+    st.info(f"📊 **Aktueller Target ACOS:** {target_acos}% (Keywords mit ACOS ≤ {target_acos}% werden als 'gut' eingestuft)")
+
     if not keyword_perf:
         st.info("Keine Keyword-Daten verfügbar")
         return
@@ -347,19 +351,8 @@ def render_placement_adjustments_tab(initial_adjustments):
 
             total_row = grp[grp['is_total'] == True].iloc[0] if not grp[grp['is_total'] == True].empty else None
 
-            if total_row is not None:
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Klicks", int(total_row['clicks']))
-                with col2:
-                    st.metric("Ausgaben", f"€{total_row['spend']}")
-                with col3:
-                    st.metric("Verkäufe", f"€{total_row['sales']}")
-                with col4:
-                    st.metric("ACOS", f"{total_row['current_acos']}%")
-
-                # Second metric row for RPC & Target CPC
-                if total_row is not None and 'total_rpc' in total_row:
+            # Display comprehensive metrics using HTML cards
+            if total_row is not None and 'total_rpc' in total_row:
                     # Kartenlayout mit HTML
                     metrics = [
                         ("Klicks", f"{int(total_row['clicks'])}"),
