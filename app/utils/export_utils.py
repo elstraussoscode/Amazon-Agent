@@ -110,10 +110,27 @@ def generate_export_excel(original_excel_path: str,
                     except (ValueError, TypeError):
                         continue
 
-                    mask_pl = (
-                        (df_to_update['Kampagnen-ID'] == camp_id) &
-                        (df_to_update['Platzierung'] == placement_label)
-                    )
+                    # Ensure we only update placement adjustment rows, not keyword rows
+                    if 'Entität' in df_to_update.columns:
+                        entity_col = 'Entität'
+                    elif 'Entity' in df_to_update.columns:
+                        entity_col = 'Entity'
+                    else:
+                        entity_col = None
+                    
+                    if entity_col:
+                        mask_pl = (
+                            (df_to_update['Kampagnen-ID'] == camp_id) &
+                            (df_to_update['Platzierung'] == placement_label) &
+                            (df_to_update[entity_col].astype(str).str.lower() == 'gebotsanpassung')
+                        )
+                    else:
+                        # Fallback: if no entity column, use original logic but with warning
+                        mask_pl = (
+                            (df_to_update['Kampagnen-ID'] == camp_id) &
+                            (df_to_update['Platzierung'] == placement_label)
+                        )
+                        st.warning("⚠️ No Entity column found. Placement updates may affect unintended rows.")
                     idxs = df_to_update[mask_pl].index
                     if not idxs.empty:
                         df_to_update.loc[idxs, 'Prozentsatz'] = new_pct_val

@@ -203,7 +203,7 @@ def main():
             
             if 'export_file_bytes' in st.session_state and st.session_state.export_file_bytes:
                 st.download_button(
-                    label="Aktualisiertes Bericht (.xlsx) herunterladen",
+                    label="Aktualisierter Bericht herunterladen",
                     data=st.session_state.export_file_bytes,
                     file_name="optimized_amazon_report.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
