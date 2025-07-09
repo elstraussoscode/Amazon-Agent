@@ -11,7 +11,7 @@ def render_dashboard(optimization_results: Dict[str, Any]):
     Args:
         optimization_results (dict): The optimization results from LangGraph workflow
     """
-    st.title("Optimization Results Dashboard")
+    st.title("Optimierungsergebnisse")
     
     # Extract data from results
     keyword_changes = optimization_results.get("keyword_changes", [])
@@ -23,53 +23,51 @@ def render_dashboard(optimization_results: Dict[str, Any]):
     
     with col1:
         st.metric(
-            "Keywords Analyzed", 
+            "Analysierte Keywords", 
             f"{summary.get('total_keywords_analyzed', 0)}"
         )
     
     with col2:
         st.metric(
-            "Keywords to Pause",
+            "Zu pausierende Keywords",
             f"{summary.get('keywords_to_pause', 0)}",
-            delta=f"{summary.get('keywords_to_pause', 0)} to pause", # More descriptive delta
+            delta=f"{summary.get('keywords_to_pause', 0)}", 
             delta_color="inverse"
         )
     
     with col3:
         st.metric(
-            "Bids Increased",
+            "Erhöhte Gebote",
             f"{summary.get('bids_to_increase', 0)}",
-             delta=f"{summary.get('avg_bid_increase', 0):.1f}% avg inc.",
-             delta_color="normal" # Green for increase generally positive in this context
+             delta=f"{summary.get('avg_bid_increase', 0):.1f}% Ø", 
+             delta_color="normal"
         )
     
     with col4:
         st.metric(
-            "Bids Decreased",
+            "Gesenkte Gebote",
             f"{summary.get('bids_to_decrease', 0)}",
-            delta=f"{summary.get('avg_bid_decrease', 0):.1f}% avg dec.",
-            delta_color="inverse" # Red for decrease often implies cost saving/ACOS control
+            delta=f"{summary.get('avg_bid_decrease', 0):.1f}% Ø", 
+            delta_color="inverse"
         )
     
     # Create tabs for different views
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Overview", 
-        "Keyword Changes", 
-        "Bid Adjustments",
-        "AI Recommendations"
+    tab_kw, tab_bid, tab_placement = st.tabs([
+        "Keyword-Änderungen", 
+        "Gebotsanpassungen",
+        "Platzierungs­anpassungen"
     ])
-    
-    with tab1:
-        render_overview_tab(optimization_results)
-    
-    with tab2:
-        render_keyword_changes_tab(keyword_changes)
-    
-    with tab3:
+
+    with tab_kw:
+        render_keyword_changes_tab(optimization_results.get('keyword_performance', []))
+
+    with tab_bid:
         render_bid_changes_tab(bid_changes)
-    
-    with tab4:
-        render_recommendations_tab(summary.get('general_recommendations', []))
+
+    with tab_placement:
+        render_placement_adjustments_tab(optimization_results.get('placement_adjustments', []))
+
+    # KI-Empfehlungen Tab entfernt
 
 
 def render_overview_tab(optimization_results: Dict[str, Any]):
@@ -183,154 +181,237 @@ def render_overview_tab(optimization_results: Dict[str, Any]):
         st.info("Projected ACOS reduction data not available for gauge chart.")
 
 
-def render_keyword_changes_tab(keyword_changes):
-    """Render the keyword changes tab with detailed tables"""
-    st.subheader("Keyword Optimization Details")
-    
-    if not keyword_changes:
-        st.info("No keyword changes to display")
+def render_keyword_changes_tab(keyword_perf):
+    """Zeigt gut und schlecht laufende Keywords je Kampagne an (keine Gebotsratschläge)"""
+    import pandas as pd
+    st.subheader("Keyword-Leistung")
+
+    if not keyword_perf:
+        st.info("Keine Keyword-Daten verfügbar")
         return
-    
-    # Create DataFrame for display
-    df_keywords = pd.DataFrame(keyword_changes)
-    
-    # Split into pause and keep
-    if 'action' in df_keywords.columns:
-        df_pause = df_keywords[df_keywords['action'] == 'pause']
-        df_keep = df_keywords[df_keywords['action'] == 'keep']
-        
-        st.write(f"Total keywords: {len(df_keywords)}")
-        
+
+    df_kw = pd.DataFrame(keyword_perf)
+
+    for campaign_id, grp in df_kw.groupby('campaign_id'):
+        st.markdown(f"### Kampagne **{campaign_id}**")
+
+        good = grp[grp['status'] == 'gut']
+        bad = grp[grp['status'] == 'schlecht']
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
-            st.subheader("Keywords to Pause")
-            if not df_pause.empty:
-                # Extract metrics from original_data
-                df_pause_display = df_pause.copy()
-                for idx, row in df_pause.iterrows():
-                    if 'original_data' in row and isinstance(row['original_data'], dict):
-                        for metric, value in row['original_data'].items():
-                            df_pause_display.at[idx, metric] = value
-                
-                # Select columns to display
-                display_cols = ['keyword', 'customer_search_term', 'reason', 'clicks', 'orders', 'acos', 'conversion_rate']
-                display_cols = [col for col in display_cols if col in df_pause_display.columns]
-                
-                # Rename columns for better display
-                if 'customer_search_term' in display_cols:
-                    df_pause_display = df_pause_display.rename(columns={
-                        'keyword': 'Campaign Keyword',
-                        'customer_search_term': 'Customer Search Term'
-                    })
-                    display_cols = ['Campaign Keyword' if col == 'keyword' else 
-                                  'Customer Search Term' if col == 'customer_search_term' else 
-                                  col for col in display_cols]
-                
-                st.dataframe(df_pause_display[display_cols], use_container_width=True)
+            st.subheader("Gut laufende Keywords")
+            if good.empty:
+                st.info("Keine")
             else:
-                st.info("No keywords to pause")
-        
+                df_good = good[['keyword', 'clicks', 'spend', 'sales', 'acos', 'reason']].copy()
+                df_good = df_good.rename(columns={
+                    'keyword': 'Keyword',
+                    'clicks': 'Klicks',
+                    'spend': 'Ausgaben',
+                    'sales': 'Verkäufe',
+                    'acos': 'ACOS %',
+                    'reason': 'Grund'
+                })
+                # Format ACOS as Prozentwert
+                if 'ACOS %' in df_good.columns:
+                    df_good['ACOS %'] = df_good['ACOS %'].apply(lambda x: round(x*100,2) if x <= 1 else round(x,2))
+                st.dataframe(df_good, use_container_width=True)
+
         with col2:
-            st.subheader("Top Performing Keywords")
-            if not df_keep.empty:
-                # Extract metrics from original_data
-                df_keep_display = df_keep.copy()
-                for idx, row in df_keep.iterrows():
-                    if 'original_data' in row and isinstance(row['original_data'], dict):
-                        for metric, value in row['original_data'].items():
-                            df_keep_display.at[idx, metric] = value
-                
-                # Select columns to display
-                display_cols = ['keyword', 'customer_search_term', 'reason', 'clicks', 'orders', 'acos', 'conversion_rate']
-                display_cols = [col for col in display_cols if col in df_keep_display.columns]
-                
-                # Rename columns for better display
-                if 'customer_search_term' in display_cols:
-                    df_keep_display = df_keep_display.rename(columns={
-                        'keyword': 'Campaign Keyword',
-                        'customer_search_term': 'Customer Search Term'
-                    })
-                    display_cols = ['Campaign Keyword' if col == 'keyword' else 
-                                  'Customer Search Term' if col == 'customer_search_term' else 
-                                  col for col in display_cols]
-                
-                # Sort by best performance (lowest ACOS)
-                if 'acos' in df_keep_display.columns:
-                    df_keep_display = df_keep_display.sort_values('acos')
-                
-                st.dataframe(df_keep_display[display_cols], use_container_width=True)
+            st.subheader("Schlecht laufende Keywords")
+            if bad.empty:
+                st.info("Keine")
             else:
-                st.info("No keywords to keep")
-    else:
-        st.dataframe(df_keywords)
+                df_bad = bad[['keyword', 'clicks', 'spend', 'sales', 'acos', 'reason']].copy()
+                df_bad = df_bad.rename(columns={
+                    'keyword': 'Keyword',
+                    'clicks': 'Klicks',
+                    'spend': 'Ausgaben',
+                    'sales': 'Verkäufe',
+                    'acos': 'ACOS %',
+                    'reason': 'Grund'
+                })
+                # Format ACOS as Prozentwert
+                if 'ACOS %' in df_bad.columns:
+                    df_bad['ACOS %'] = df_bad['ACOS %'].apply(lambda x: round(x*100,2) if x <= 1 else round(x,2))
+                st.dataframe(df_bad, use_container_width=True)
 
 
 def render_bid_changes_tab(bid_changes):
     """Render the bid changes tab with detailed tables"""
-    st.subheader("Bid Adjustment Details")
-    
-    if not bid_changes:
-        st.info("No bid changes to display")
+    # Abschnitt Gebotsänderungen entfernt; es werden nur noch Suchbegriff-Analysen angezeigt.
+
+    # ---------------------- Suchbegriff-Analyse ----------------------
+    if 'df_search_terms' in st.session_state and st.session_state.df_search_terms is not None:
+        df_st = st.session_state.df_search_terms.copy()
+        if 'kampagnen-id' in df_st.columns and ('customer_search_term' in df_st.columns or 'suchbegriff_eines_kunden' in df_st.columns):
+            # Normalisiere Spaltenname
+            if 'customer_search_term' not in df_st.columns:
+                df_st['customer_search_term'] = df_st['suchbegriff_eines_kunden']
+
+            st.markdown("---")
+            st.subheader("Suchbegriff-Analyse")
+
+            for camp_id, grp in df_st.groupby('kampagnen-id'):
+                with st.container():
+                    st.markdown(f"#### Kampagne **{camp_id}**")
+
+                    # ACOS als Prozent Format
+                    grp['acos_pct'] = grp['acos'].apply(lambda x: round(x*100,2) if x <= 1 else round(x,2))
+
+                    # Sortierung: gültige ACOS >0 nach Wert, ACOS==0 ans Ende
+                    grp_nonzero = grp[grp['acos'] > 0]
+                    grp_zero = grp[grp['acos'] == 0]
+
+                    best15 = grp_nonzero.sort_values('acos').head(15)
+                    worst15 = grp_nonzero.sort_values('acos', ascending=False).head(15)
+
+                    col_best, col_worst = st.columns(2)
+                    with col_best:
+                        st.markdown("**Beste 15 Suchbegriffe** (niedrigster ACOS)")
+                        df_best_disp = best15[['customer_search_term','clicks','spend','sales','acos_pct']].rename(columns={
+                            'customer_search_term':'Suchbegriff',
+                            'clicks':'Klicks',
+                            'spend':'Ausgaben',
+                            'sales':'Verkäufe',
+                            'acos_pct':'ACOS %'
+                        })
+                        st.dataframe(df_best_disp, use_container_width=True)
+
+                    with col_worst:
+                        st.markdown("**Schlechteste 15 Suchbegriffe** (höchster ACOS)")
+                        df_worst_disp = worst15[['customer_search_term','clicks','spend','sales','acos_pct']].rename(columns={
+                            'customer_search_term':'Suchbegriff',
+                            'clicks':'Klicks',
+                            'spend':'Ausgaben',
+                            'sales':'Verkäufe',
+                            'acos_pct':'ACOS %'
+                        })
+                        st.dataframe(df_worst_disp, use_container_width=True)
+
+                    with st.expander("Alle Suchbegriffe"):
+                        # kombiniere, sortiere: erst nonzero nach ACOS aufsteigend, dann zero
+                        full_sorted = pd.concat([
+                            grp_nonzero.sort_values('acos'),
+                            grp_zero
+                        ])
+                        full_disp = full_sorted[['customer_search_term','clicks','spend','sales','acos_pct']].rename(columns={
+                            'customer_search_term':'Suchbegriff',
+                            'clicks':'Klicks',
+                            'spend':'Ausgaben',
+                            'sales':'Verkäufe',
+                            'acos_pct':'ACOS %'
+                        })
+                        st.dataframe(full_disp, use_container_width=True)
+
+
+def render_placement_adjustments_tab(initial_adjustments):
+    """Render placement bid adjustment recommendations per campaign with interactive target ACOS slider"""
+    import streamlit as st  # ensure local import for type checker
+    from app.utils.placement_adjuster import compute_placement_adjustments
+
+    st.subheader("Placement Bid Adjustments")
+
+    # Determine default target ACOS from configuration or 20 %
+    default_target = st.session_state.get('client_config', {}).get('target_acos', 20.0)
+
+    target_acos_pct = st.slider(
+        "Target ACOS (%)",
+        min_value=5.0,
+        max_value=50.0,
+        value=float(default_target),
+        step=0.5,
+        key="placement_target_acos_slider",
+        help="Adjust the target ACOS to see updated placement recommendations"
+    )
+
+    # Recompute recommendations based on slider value
+    if 'df_campaign' in st.session_state and st.session_state.df_campaign is not None:
+        df_campaign = st.session_state.df_campaign
+        placement_adjustments = compute_placement_adjustments(df_campaign, target_acos=target_acos_pct / 100)
+    else:
+        placement_adjustments = initial_adjustments or []
+
+    if not placement_adjustments:
+        st.info("No placement adjustment data available")
         return
-    
-    # Create DataFrame for display
-    df_bids = pd.DataFrame(bid_changes)
-    
-    # Add customer search term if available
-    if 'customer_search_term' in df_bids.columns:
-        # Rename columns for better display
-        df_bids = df_bids.rename(columns={
-            'keyword': 'Campaign Keyword',
-            'customer_search_term': 'Customer Search Term',
-            'current_bid': 'Current Bid',
-            'new_bid': 'New Bid',
-            'change_percentage': 'Change %'
-        })
-        
-        # Format display columns
-        display_cols = [
-            'Campaign Keyword', 
-            'Customer Search Term', 
-            'Current Bid', 
-            'New Bid', 
-            'Change %', 
-            'reason'
-        ]
-        display_cols = [col for col in display_cols if col in df_bids.columns]
-    else:
-        # Use original column names
-        display_cols = ['keyword', 'current_bid', 'new_bid', 'change_percentage', 'reason']
-        display_cols = [col for col in display_cols if col in df_bids.columns]
-    
-    # Split into increases and decreases
-    if 'Change %' in df_bids.columns:
-        change_col = 'Change %'
-    else:
-        change_col = 'change_percentage'
-        
-    if change_col in df_bids.columns:
-        df_increases = df_bids[df_bids[change_col] > 0]
-        df_decreases = df_bids[df_bids[change_col] < 0]
-    
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Bid Increases")
-            if not df_increases.empty:
-                st.dataframe(df_increases[display_cols], use_container_width=True)
-            else:
-                st.info("No bid increases to display")
-        
-        with col2:
-            st.subheader("Bid Decreases")
-            if not df_decreases.empty:
-                st.dataframe(df_decreases[display_cols], use_container_width=True)
-            else:
-                st.info("No bid decreases to display")
-    else:
-        # Just show everything in one table if change column not found
-        st.dataframe(df_bids, use_container_width=True)
+
+    df_placement = pd.DataFrame(placement_adjustments)
+
+    # Separate totals for metrics display
+    for campaign_id, grp in df_placement.groupby('campaign_id'):
+        with st.container():
+            st.markdown(f"### Kampagne **{campaign_id}**")
+
+            total_row = grp[grp['is_total'] == True].iloc[0] if not grp[grp['is_total'] == True].empty else None
+
+            if total_row is not None:
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Klicks", int(total_row['clicks']))
+                with col2:
+                    st.metric("Ausgaben", f"€{total_row['spend']}")
+                with col3:
+                    st.metric("Verkäufe", f"€{total_row['sales']}")
+                with col4:
+                    st.metric("ACOS", f"{total_row['current_acos']}%")
+
+                # Second metric row for RPC & Target CPC
+                if total_row is not None and 'total_rpc' in total_row:
+                    # Kartenlayout mit HTML
+                    metrics = [
+                        ("Klicks", f"{int(total_row['clicks'])}"),
+                        ("Ausgaben", f"€{total_row['spend']:.2f}"),
+                        ("Verkäufe", f"€{total_row['sales']:.2f}"),
+                        ("ACOS", f"{total_row['current_acos']}%"),
+                        ("RPC gesamt", f"{total_row['total_rpc']:.4f}"),
+                        ("Ziel-CPC", f"€{total_row['target_cpc']:.2f}"),
+                        ("Basis-CPC", f"€{total_row['base_cpc_total']:.2f}"),
+                        ("Niedrigster RPC", f"{total_row['min_rpc_total']:.4f}")
+                    ]
+                    card_html = "<div style='display:flex;flex-wrap:wrap;'>"
+                    for label, val in metrics:
+                        card_html += f"<div style='flex:1 0 200px;background:#f7f7f7;margin:6px;padding:12px;border-radius:8px;text-align:center'>"
+                        card_html += f"<div style='font-size:14px;font-weight:600'>{label}</div>"
+                        card_html += f"<div style='font-size:20px;font-weight:700'>{val}</div>"
+                        card_html += "</div>"
+                    card_html += "</div>"
+                    st.markdown(card_html, unsafe_allow_html=True)
+
+            # Data table without the helper flag column
+            display_cols = [
+                'placement',
+                'clicks',
+                'spend',
+                'sales',
+                'current_adjust_pct',
+                'recommended_adjust_pct',
+                'current_acos',
+                'cpc',
+                'rpc',
+                'min_rpc',
+                'base_cpc'
+            ]
+            display_cols = [c for c in display_cols if c in grp.columns]
+
+            df_display = grp[grp['is_total'] == False][display_cols].copy()
+            rename_map = {
+                'placement': 'Platzierung',
+                'clicks': 'Klicks',
+                'spend': 'Ausgaben',
+                'sales': 'Verkäufe',
+                'current_adjust_pct': 'Akt. Anpassung %',
+                'recommended_adjust_pct': 'Empf. Anpassung %',
+                'current_acos': 'ACOS %',
+                'cpc': 'CPC',
+                'rpc': 'RPC',
+                'min_rpc': 'Min. RPC',
+                'base_cpc': 'Basis CPC'
+            }
+            df_display = df_display.rename(columns={k: v for k, v in rename_map.items() if k in df_display.columns})
+            st.dataframe(df_display, use_container_width=True)
 
 
 def render_recommendations_tab(recommendations):

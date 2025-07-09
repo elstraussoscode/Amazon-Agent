@@ -7,6 +7,7 @@ from app.components.dashboard import render_dashboard
 from app.components.configuration import render_configuration
 from app.utils.export_utils import generate_export_excel
 from io import BytesIO
+from app.utils.placement_adjuster import compute_placement_adjustments
 
 st.set_page_config(
     page_title="Amazon PPC Optimizer",
@@ -16,7 +17,7 @@ st.set_page_config(
 )
 
 def main():
-    st.sidebar.title("Amazon PPC Optimizer")
+    st.sidebar.title("Amazon PPC Optimierer")
     
     # Initialize session state for page navigation if not already set
     if 'page' not in st.session_state:
@@ -24,7 +25,7 @@ def main():
         
     # Navigation
     # Use st.session_state.page for consistent navigation after button clicks
-    page_options = ["Upload Report", "Configuration", "Dashboard"]
+    page_options = ["Bericht hochladen", "Konfiguration", "Dashboard"]
     current_page_index = page_options.index(st.session_state.page) if st.session_state.page in page_options else 0
     
     # Update session state page based on sidebar selection
@@ -32,40 +33,40 @@ def main():
     # or by using a callback.
     # For simplicity, we read the selectbox and update if it differs from current session page.
     selected_page_from_sidebar = st.sidebar.selectbox(
-        "Navigate", 
+        "Navigation", 
         page_options,
         index=current_page_index,
         key="navigation_selectbox" # Add a key for stability
     )
     if st.session_state.page != selected_page_from_sidebar:
         st.session_state.page = selected_page_from_sidebar
-        st.experimental_rerun() # Rerun to reflect page change from sidebar
+        st.rerun() # Rerun to reflect page change from sidebar
 
     active_page = st.session_state.page
     
-    if active_page == "Upload Report":
-        st.title("Upload Amazon PPC Report")
+    if active_page == "Bericht hochladen":
+        st.title("Amazon-PPC-Bericht hochladen")
         
-        with st.expander("Help with file upload", expanded=True):
+        with st.expander("Hilfe zum Datei-Upload", expanded=True):
             st.markdown("""
-            ### Expected File Format
-            Please upload an Amazon Bulk Sheet Excel file with the following sheets:
+            ### Erwartetes Dateiformat
+            Bitte lade eine Amazon Bulk-Sheet-Excel-Datei mit folgenden Arbeitsblättern hoch:
             
-            **Required for bid changes:**
-            - **Sponsored Products-Kampagnen** sheet - This is where all bid modifications will be made
+            **Erforderlich für Gebotsänderungen:**
+            - **Sponsored Products-Kampagnen** – hier werden die Gebote angepasst
             
-            **Optional for analysis:**
-            - **SP Bericht Suchbegriff** sheet - Used only to analyze keyword outliers (bad ACOS, ACOS=0, or very low ACOS keywords)
+            **Optional für Analyse:**
+            - **SP Bericht Suchbegriff** – dient nur zur Analyse von Keyword-Ausreißern (hoher ACOS, ACOS = 0, sehr niedriger ACOS)
             
-            **Key columns expected in Sponsored Products-Kampagnen sheet:**
-            - **Keywords** (e.g., "Keyword-Text", "Keyword") - used for matching and bid adjustments
-            - **Bids** (e.g., "Max. Gebot", "CPC", "Maximales Gebot") - the bid amounts that will be updated
-            - Performance metrics: **Clicks**, **Spend**, Orders, Sales, ACOS, etc.
+            **Wichtige Spalten im Sheet „Sponsored Products-Kampagnen“:**
+            - **Keywords** (z. B. „Keyword-Text“) – zum Abgleich und Anpassen der Gebote
+            - **Gebote** (z. B. „Max. Gebot“, „CPC“) – werden aktualisiert
+            - Leistungskennzahlen: **Klicks**, **Kosten**, **Bestellungen**, **Umsatz**, **ACOS** etc.
             
-            The system will identify keyword outliers from the search terms sheet and apply bid changes to the campaign sheet.
+            Das System identifiziert Keyword-Ausreißer und passt die Gebote entsprechend an.
             """)
         
-        uploaded_file = st.file_uploader("Choose an Amazon Bulk Sheet (Excel)", type=["xlsx"])
+        uploaded_file = st.file_uploader("Bulk-Sheet auswählen (Excel)", type=["xlsx"])
         
         if uploaded_file is not None:
             temp_upload_dir = "temp_uploads"
@@ -78,12 +79,12 @@ def main():
                     f.write(uploaded_file.getbuffer())
                 st.session_state.temp_upload_filepath = temp_upload_filepath # Store for exporter
                 
-                with st.spinner("Processing Excel file..."):
+                with st.spinner("Excel-Datei verarbeiten..."):
                     # Update to handle new return values from process_amazon_report
                     processed_data = process_amazon_report(temp_upload_filepath)
                     
                     if processed_data[0] is None: # Check if processing failed (indicated by first element being None)
-                        st.error("Failed to process the Excel file. Please check the error messages above and the file format.")
+                        st.error("Datei konnte nicht verarbeitet werden. Bitte überprüfen Sie die Fehlermeldungen und das Dateiformat.")
                         return
 
                     (
@@ -94,25 +95,45 @@ def main():
                     ) = processed_data
                 
                 if df_campaign is None or df_campaign.empty:
-                    st.error("Could not extract valid campaign data. Please check the file and ensure 'Sponsored Products-Kampagnen' sheet exists.")
+                    st.error("Konnte keine gültigen Kampagnendaten extrahieren. Bitte überprüfen Sie die Datei und stellen Sie sicher, dass das Blatt „Sponsored Products-Kampagnen“ existiert.")
                     return
                 
-                st.subheader("Preview of Campaign Data (Primary for Changes)")
-                st.dataframe(df_campaign.head(), use_container_width=True)
-                
+                # --- Preview with original Spaltennamen ---
+                import pandas as pd
+                try:
+                    df_campaign_original_preview = pd.read_excel(
+                        temp_upload_filepath,
+                        sheet_name=original_campaign_sheet_name,
+                        nrows=5
+                    )
+                    st.subheader("Vorschau Kampagnendaten – Originalspalten")
+                    st.dataframe(df_campaign_original_preview, use_container_width=True)
+                except Exception as _:
+                    st.subheader("Vorschau Kampagnendaten (Basis für Änderungen)")
+                    st.dataframe(df_campaign.head(), use_container_width=True)
+ 
                 if df_search_terms is not None and not df_search_terms.empty:
-                    st.subheader("Preview of Search Terms Data (Analysis Only)")
-                    st.dataframe(df_search_terms.head(), use_container_width=True)
+                    try:
+                        df_st_original_preview = pd.read_excel(
+                            temp_upload_filepath,
+                            sheet_name=original_search_terms_sheet_name,
+                            nrows=5
+                        )
+                        st.subheader("Vorschau Suchbegriff-Daten – Originalspalten")
+                        st.dataframe(df_st_original_preview, use_container_width=True)
+                    except Exception:
+                        st.subheader("Vorschau Suchbegriff-Daten (nur Analyse)")
+                        st.dataframe(df_search_terms.head(), use_container_width=True)
                 else:
-                    st.warning("No search terms data found. Analysis will be limited to campaign data only.")
+                    st.warning("Kein Suchbegriff-Sheet gefunden. Analyse beschränkt sich auf Kampagnendaten.")
                     
                 can_continue = True
                 # Ensure essential columns for optimizer are present in the campaign data
                 if 'keyword' not in df_campaign.columns:
-                    st.error("Campaign data is missing the 'keyword' column. Cannot continue.")
+                    st.error("Kampagnendaten fehlt die 'keyword' Spalte. Fortfahren nicht möglich.")
                     can_continue = False
                 if 'clicks' not in df_campaign.columns or 'spend' not in df_campaign.columns:
-                    st.error("Campaign data is missing 'clicks' or 'spend' columns. Cannot continue.")
+                    st.error("Kampagnendaten fehlt die 'clicks' oder 'spend' Spalten. Fortfahren nicht möglich.")
                     can_continue = False
                 
                 if can_continue:
@@ -125,8 +146,8 @@ def main():
                     st.session_state.identified_original_bid_target_column = identified_original_bid_target_column
                     st.session_state.all_original_sheet_names = all_original_sheet_names
                     
-                    if st.button("Run Optimization"):
-                        with st.spinner("Applying optimization rules..."):
+                    if st.button("Optimierung starten"):
+                        with st.spinner("Optimierungsregeln anwenden..."):
                             client_config = st.session_state.get('client_config', {
                                 'is_market_leader': False, 'has_large_inventory': False,
                                 'target_acos': 20.0, 'client_name': 'Default Client'
@@ -137,16 +158,31 @@ def main():
                                     st.session_state.df_search_terms,
                                     client_config
                                 )
+                                # --- NEW: Calculate placement bid adjustments ---
+                                try:
+                                    placement_adjustments = compute_placement_adjustments(
+                                        st.session_state.df_campaign,
+                                        target_acos=float(client_config.get('target_acos', 20.0)) / 100 if client_config.get('target_acos', 20.0) > 1 else float(client_config.get('target_acos', 0.20))
+                                    )
+                                except Exception as e:
+                                    placement_adjustments = []
+                                    st.warning(f"Platzierungs-Anpassungen konnten nicht berechnet werden: {e}")
+                                optimization_results['placement_adjustments'] = placement_adjustments
+
+                                # Keyword classification
+                                from app.utils.keyword_classifier import classify_keywords
+                                keyword_perf = classify_keywords(st.session_state.df_campaign, target_acos=float(client_config.get('target_acos',20))/100)
+                                optimization_results['keyword_performance'] = keyword_perf
                                 st.session_state.optimization_results = optimization_results
-                                st.success("Optimization completed successfully!")
+                                st.success("Optimierung erfolgreich abgeschlossen!")
                                 st.session_state.page = "Dashboard" # Navigate to Dashboard
-                                st.experimental_rerun()
+                                st.rerun()
                             except Exception as e:
-                                st.error(f"Error during optimization: {str(e)}")
+                                st.error(f"Fehler während der Optimierung: {str(e)}")
                                 import traceback
                                 st.code(traceback.format_exc())
             except Exception as e:
-                st.error(f"Error processing the uploaded file: {str(e)}")
+                st.error(f"Fehler beim Verarbeiten der hochgeladenen Datei: {str(e)}")
                 import traceback
                 st.code(traceback.format_exc())
             finally:
@@ -154,7 +190,7 @@ def main():
                 # For now, we leave it as its path is stored for export
                 pass 
     
-    elif active_page == "Configuration":
+    elif active_page == "Konfiguration":
         render_configuration()
     
     elif active_page == "Dashboard":
@@ -162,12 +198,12 @@ def main():
             render_dashboard(st.session_state.optimization_results)
             
             # Add Export Button here or within render_dashboard
-            if st.button("Prepare Export File"):
+            if st.button("Export-Datei vorbereiten"):
                 if not st.session_state.get('identified_original_keyword_column') or \
                    not st.session_state.get('identified_original_bid_target_column'):
-                    st.error("Cannot export: Original keyword or bid column names were not properly identified during upload. Please re-upload.")
+                    st.error("Export nicht möglich: Original-Schlüsselwort oder Gebots-Spalten-Namen wurden während des Uploads nicht korrekt identifiziert. Bitte laden Sie erneut hoch.")
                 else:
-                    with st.spinner("Generating export file..."):
+                    with st.spinner("Export-Datei generieren..."):
                         export_file_bytes = generate_export_excel(
                             original_excel_path=st.session_state.temp_upload_filepath,
                             bid_changes=st.session_state.optimization_results.get('bid_changes', []),
@@ -175,17 +211,18 @@ def main():
                             keyword_match_col_original_name=st.session_state.identified_original_keyword_column,
                             bid_update_col_original_name=st.session_state.identified_original_bid_target_column,
                             campaign_sheet_name=st.session_state.original_campaign_sheet_name,
-                            all_original_sheet_names=st.session_state.all_original_sheet_names
+                            all_original_sheet_names=st.session_state.all_original_sheet_names,
+                            placement_changes=st.session_state.optimization_results.get('placement_adjustments', [])
                         )
                         if export_file_bytes:
                             st.session_state.export_file_bytes = export_file_bytes
-                            st.success("Export file ready for download.")
+                            st.success("Export-Datei bereit für Download.")
                         else:
-                            st.error("Failed to generate export file.")
+                            st.error("Export-Datei konnte nicht generiert werden.")
             
             if 'export_file_bytes' in st.session_state and st.session_state.export_file_bytes:
                 st.download_button(
-                    label="Download Updated Report (.xlsx)",
+                    label="Aktualisiertes Bericht (.xlsx) herunterladen",
                     data=st.session_state.export_file_bytes,
                     file_name="optimized_amazon_report.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -194,10 +231,10 @@ def main():
                 # del st.session_state.export_file_bytes
 
         else:
-            st.info("Please upload and optimize a report first to view the dashboard and export results.")
-            if st.button("Go to Upload Page"):
-                st.session_state.page = "Upload Report"
-                st.experimental_rerun()
+            st.info("Bitte laden Sie zuerst einen Bericht hoch und optimieren, um das Dashboard zu sehen und Ergebnisse zu exportieren.")
+            if st.button("Zur Upload-Seite"):
+                st.session_state.page = "Bericht hochladen"
+                st.rerun()
 
 if __name__ == "__main__":
     main() 

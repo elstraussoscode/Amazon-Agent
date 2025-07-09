@@ -8,7 +8,8 @@ def generate_export_excel(original_excel_path: str,
                           keyword_match_col_original_name: str,
                           bid_update_col_original_name: str,
                           campaign_sheet_name: str = None, # Now required: original campaign sheet name
-                          all_original_sheet_names: list = None):
+                          all_original_sheet_names: list = None,
+                          placement_changes: list = None):
     """
     Generates an Excel file in memory with updated bids in the campaign sheet.
 
@@ -86,6 +87,7 @@ def generate_export_excel(original_excel_path: str,
             df_to_update.insert(2, 'Operation', '')
 
         updated_keywords_count = 0
+        updated_placements_count = 0
         for change in bid_changes:
             keyword_to_match = str(change.get('keyword', '')) # Ensure string for matching
             new_bid = change.get('new_bid')
@@ -129,9 +131,31 @@ def generate_export_excel(original_excel_path: str,
                 # Optional: Log keywords from bid_changes not found in the sheet
                 # st.info(f"Export Info: Keyword '{keyword_to_match}' from bid changes not found in sheet '{campaign_sheet_name}'.")
         
-        st.info(f"Export Info: Updated bids for {updated_keywords_count} rows in campaign sheet '{campaign_sheet_name}'.")
+        # ------------------- Apply placement changes ----------------------------
+        if placement_changes:
+            if 'Platzierung' in df_to_update.columns and 'Prozentsatz' in df_to_update.columns:
+                for pl_change in placement_changes:
+                    camp_id = pl_change.get('campaign_id')
+                    placement_label = pl_change.get('placement')
+                    new_pct = pl_change.get('recommended_adjust_pct')
 
-        # Place the updated DataFrame back into the sheets_data dictionary
+                    try:
+                        new_pct_val = float(new_pct)
+                    except (ValueError, TypeError):
+                        continue
+
+                    mask_pl = (
+                        (df_to_update['Kampagnen-ID'] == camp_id) &
+                        (df_to_update['Platzierung'] == placement_label)
+                    )
+                    idxs = df_to_update[mask_pl].index
+                    if not idxs.empty:
+                        df_to_update.loc[idxs, 'Prozentsatz'] = new_pct_val
+                        df_to_update.loc[idxs, 'Operation'] = 'Update'
+                        updated_placements_count += len(idxs)
+
+            # else: silently ignore if columns missing
+
         sheets_data[campaign_sheet_name] = df_to_update
 
         output_buffer = BytesIO()
